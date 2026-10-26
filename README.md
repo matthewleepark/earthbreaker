@@ -58,6 +58,23 @@ you get Cesium World Terrain (real elevation) and Bing Maps satellite imagery.
 | `npm run preview` | Serve the built `dist/` at <http://localhost:4173> |
 | `npm run typecheck` | Type-check only |
 
+## Deployment
+
+Every push to `main` builds the app and publishes it to GitHub Pages at
+<https://matthewleepark.github.io/earthbreaker/> (`.github/workflows/deploy.yml`).
+
+One-time setup:
+
+1. Turn on Pages with GitHub Actions as the source:
+   `gh api -X POST repos/matthewleepark/earthbreaker/pages -f build_type=workflow`
+   (or **Settings → Pages → Source: GitHub Actions**).
+2. Optional, for real terrain on the live site: add the token as a repository secret named
+   `VITE_CESIUM_ION_TOKEN` (`gh secret set VITE_CESIUM_ION_TOKEN`). Add
+   `https://matthewleepark.github.io` to the token's **Allowed URLs** on Cesium ion first.
+
+To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerShell, run
+`$env:BASE_PATH="/earthbreaker/"; npm run build` instead.
+
 ## Controls
 
 | Input | Action |
