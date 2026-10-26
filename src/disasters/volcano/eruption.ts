@@ -4,6 +4,7 @@ import { seededRandom } from "../random";
 import { LavaSim } from "./lavaSim";
 import { LavaLayer } from "./lavaLayer";
 import { Plume } from "./plume";
+import { Debris } from "./debris";
 
 const GRID = 128;
 const LAVA_STEP_S = 0.1;
@@ -85,26 +86,60 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
 
   let sim: LavaSim | undefined;
   let layer: LavaLayer | undefined;
+  let ground: Float32Array | undefined;
+  let groundLowest = site.heightM;
   let terrainNote = "";
   let destroyed = false;
 
-  if (lavaOn) {
-    // Ground heights for the grid come from the terrain model. On the flat
-    // fallback globe there is no terrain, so lava spreads over level ground.
-    loadGround(ctx, rectangle).then(({ ground, note }) => {
-      if (destroyed) return;
-      terrainNote = note;
-      const mid = (GRID / 2) * GRID + GRID / 2;
-      sim = new LavaSim({
-        size: GRID,
-        cellSizeM: cellM,
-        ground,
-        ventCells: [mid, mid - 1, mid + 1, mid - GRID, mid + GRID],
-        rng,
-      });
-      layer = new LavaLayer(viewer.scene, sim, rectangle, rng);
+  // Ground heights around the vent come from the terrain model; the lava flows
+  // over them and debris lands on them. On the flat fallback globe there is no
+  // terrain, so the ground is level.
+  loadGround(ctx, rectangle).then((loaded) => {
+    if (destroyed) return;
+    ground = loaded.ground;
+    groundLowest = ground.reduce((a, b) => Math.min(a, b), Infinity);
+    terrainNote = loaded.note;
+    if (!lavaOn) return;
+    const mid = (GRID / 2) * GRID + GRID / 2;
+    sim = new LavaSim({
+      size: GRID,
+      cellSizeM: cellM,
+      ground,
+      ventCells: [mid, mid - 1, mid + 1, mid - GRID, mid + GRID],
+      rng,
     });
-  }
+    layer = new LavaLayer(viewer.scene, sim, rectangle, rng);
+  });
+
+  /** Terrain height at a point east/north of the vent: the grid where it has data, a guess beyond it. */
+  const groundAt = (east: number, north: number): number => {
+    if (ctx.providerMode !== "ion") return site.heightM;
+    const col = (east + halfSizeM) / cellM - 0.5;
+    const row = (halfSizeM - north) / cellM - 0.5;
+    if (ground && col >= 0 && row >= 0 && col < GRID - 1 && row < GRID - 1) {
+      const c0 = Math.floor(col);
+      const r0 = Math.floor(row);
+      const fc = col - c0;
+      const fr = row - r0;
+      const i = r0 * GRID + c0;
+      const top = ground[i] * (1 - fc) + ground[i + 1] * fc;
+      const bottom = ground[i + GRID] * (1 - fc) + ground[i + GRID + 1] * fc;
+      return top * (1 - fr) + bottom * fr;
+    }
+    // Outside the grid (or before it loads): assume the slopes keep falling away.
+    return Math.max(groundLowest, site.heightM - 0.3 * Math.hypot(east, north));
+  };
+
+  const debris = new Debris(viewer.scene, {
+    vent,
+    ventHeightM: site.heightM,
+    east: plume.east,
+    north: plume.north,
+    up: plume.up,
+    columnHeightM: columnM,
+    groundAt,
+    snowy: site.heightM > 2800,
+  });
 
   // Imagery dims while ash fills the sky, then recovers.
   const baseLayer = viewer.imageryLayers.get(0);
@@ -116,6 +151,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   let booms = 0;
   let lastElapsed = 0;
   let lastCollapse = -Infinity;
+  let debrisCarry = 0;
   let lavaClock = 0;
   let lastPaint = 0;
   let visible = true;
@@ -148,19 +184,33 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
       const warning = Math.min(1, f / PHASES.mainStart);
 
       // Events fire once, when the timeline passes them.
+      const budget = perf.effects;
       if (lastElapsed < boomAt && elapsed >= boomAt) {
         plume.boom(blast);
         sound.boom(blast);
+        // The blast tears the summit apart: a big burst of rock, bombs and ice.
+        debris.burst(Math.round((90 + 50 * intensity) * budget), 0.75 + 0.25 * blast);
         booms++;
       }
       while (nextCollapse < collapseAt.length && elapsed >= collapseAt[nextCollapse]) {
         if (lastElapsed < collapseAt[nextCollapse]) {
           plume.collapse(blast * 0.7);
           sound.boom(blast * 0.45);
+          debris.burst(Math.round((25 + 12 * intensity) * budget), 0.6);
           lastCollapse = elapsed;
         }
         nextCollapse++;
       }
+      // A steady spatter of pieces while the vent roars.
+      if (main && dt > 0) {
+        debrisCarry += (1.5 + 1.5 * intensity) * budget * dt;
+        const n = Math.floor(debrisCarry);
+        if (n > 0) {
+          debris.burst(n, 0.45 + Math.random() * 0.3);
+          debrisCarry -= n;
+        }
+      }
+      debris.tick(dt);
       // Lightning strikes at random while the column is thick.
       if (main && ashLevel > 0.6 && dt > 0) {
         const perSecond = 0.3 + intensity * 0.35;
@@ -178,7 +228,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
           ejecta: main ? 6 + 6 * intensity : 0,
           glow: f < PHASES.mainStart ? warning : Math.max(0.15, ashLevel),
         },
-        perf.effects,
+        budget,
       );
       plume.tick(dt);
       if (baseLayer && visible) baseLayer.brightness = baseBrightness * (1 - 0.22 * ashLevel);
@@ -235,6 +285,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     setVisible(show) {
       visible = show;
       plume.show = show;
+      debris.show = show;
       if (layer) layer.show = show;
       if (!show && baseLayer) baseLayer.brightness = baseBrightness;
     },
@@ -242,6 +293,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     destroy() {
       destroyed = true;
       plume.destroy();
+      debris.destroy();
       layer?.destroy();
       sound.stop();
       if (baseLayer && !baseLayer.isDestroyed()) baseLayer.brightness = baseBrightness;

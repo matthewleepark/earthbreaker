@@ -69,9 +69,10 @@ export class Plume {
   private readonly boltLines: Polyline[] = [];
 
   private readonly vent: Cartesian3;
-  private readonly up: Cartesian3;
-  private readonly east: Cartesian3;
-  private readonly north: Cartesian3;
+  /** Local directions at the vent, shared with the debris. */
+  readonly up: Cartesian3;
+  readonly east: Cartesian3;
+  readonly north: Cartesian3;
   private readonly wind: Cartesian3;
   private readonly top: number;
   private readonly ringRadius: number;
@@ -418,12 +419,17 @@ function spreadBatch(p: Particle, dt: number, scratch: Cartesian3) {
 
 /** Pins a particle's colour regardless of age (Cesium blends start→end colour). */
 function setColour(p: Particle, r: number, g: number, b: number, a: number) {
-  for (const c of [p.startColor, p.endColor]) {
-    c.red = r;
-    c.green = g;
-    c.blue = b;
-    c.alpha = a;
-  }
+  // Runs for every particle every frame, so no temporary arrays.
+  const s = p.startColor;
+  s.red = r;
+  s.green = g;
+  s.blue = b;
+  s.alpha = a;
+  const e = p.endColor;
+  e.red = r;
+  e.green = g;
+  e.blue = b;
+  e.alpha = a;
 }
 
 function smoothstep(a: number, b: number, x: number) {

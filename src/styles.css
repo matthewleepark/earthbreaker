@@ -1,7 +1,7 @@
 :root {
   --bg: #07090d;
-  --glass: rgba(12, 15, 21, 0.72);
-  --glass-strong: rgba(12, 15, 21, 0.9);
+  --glass: rgba(12, 15, 21, 0.86);
+  --glass-strong: rgba(12, 15, 21, 0.94);
   --line: rgba(255, 255, 255, 0.1);
   --line-strong: rgba(255, 255, 255, 0.22);
   --text: #eef1f5;
@@ -26,12 +26,20 @@ button, input { font: inherit; color: inherit; }
 .globe .cesium-widget-credits { font-size: 11px; opacity: 0.8; }
 
 /* ---------- Glass surfaces ---------- */
+/* No backdrop-filter blur: over a 3D view that redraws every frame, the
+   browser has to re-blur everything behind each panel every frame, which made
+   scrolling the panels stutter. A near-opaque fill reads just as well. */
 .topbar > :not(.search), .search form, .panel, .banner, .loading-pill, .results, .help, .disaster-panel, .sim-bar {
   background: var(--glass);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+/* Scrolling panels: keep their layout and painting separate from the page and
+   keep the scroll from chaining into the globe. */
+.panel, .disaster-panel, .results {
+  contain: layout paint;
+  overscroll-behavior: contain;
 }
 
 /* ---------- Top bar ---------- */

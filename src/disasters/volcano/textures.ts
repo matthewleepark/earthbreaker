@@ -55,6 +55,53 @@ export function glowTexture(): HTMLCanvasElement {
   return canvas;
 }
 
+let chunks: HTMLCanvasElement[] | undefined;
+
+/**
+ * A few irregular rock silhouettes, shaded lighter on the upper left. They are
+ * white-grey so a billboard colour can tint them to rock, ice or glowing lava.
+ */
+export function chunkTextures(): HTMLCanvasElement[] {
+  if (chunks) return chunks;
+  // Fixed seed so the shapes are the same every time.
+  let s = 7;
+  const rand = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  chunks = [0, 1, 2, 3].map(() => {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    const corners = 7 + Math.floor(rand() * 4);
+    ctx.beginPath();
+    for (let i = 0; i < corners; i++) {
+      const a = (i / corners) * Math.PI * 2 + rand() * 0.4;
+      const r = size * (0.28 + rand() * 0.2);
+      const x = size / 2 + Math.cos(a) * r;
+      const y = size / 2 + Math.sin(a) * r * (0.7 + rand() * 0.3);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    const shade = ctx.createLinearGradient(10, 10, 54, 54);
+    shade.addColorStop(0, "#ffffff");
+    shade.addColorStop(0.55, "#b8b8b8");
+    shade.addColorStop(1, "#5c5c5c");
+    ctx.fillStyle = shade;
+    ctx.fill();
+    // A couple of facet lines so it reads as broken rock, not a blob.
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 2; k++) {
+      ctx.beginPath();
+      ctx.moveTo(size * (0.3 + rand() * 0.4), size * (0.3 + rand() * 0.2));
+      ctx.lineTo(size * (0.35 + rand() * 0.35), size * (0.55 + rand() * 0.2));
+      ctx.stroke();
+    }
+    return canvas;
+  });
+  return chunks;
+}
+
 let shockRing: HTMLCanvasElement | undefined;
 
 /**

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { DisasterDefinition, Params } from "../disasters/types";
 import type { VolcanoMatch } from "../data/volcanoes";
 import { isPhone } from "./isPhone";
@@ -23,7 +23,11 @@ interface Props {
   onTrigger: () => void;
 }
 
-export function DisasterPanel(props: Props) {
+/**
+ * Memoised: it only re-renders when its own props change, not on every
+ * simulation tick that updates the rest of the app.
+ */
+export const DisasterPanel = memo(function DisasterPanel(props: Props) {
   const { disasters, selectedId, onSelect, params, onParam, vent, picking, onPickVent, busy, onTrigger } = props;
   const [open, setOpen] = useState(() => !isPhone());
   const selected = disasters.find((d) => d.id === selectedId) ?? disasters[0];
@@ -108,7 +112,7 @@ export function DisasterPanel(props: Props) {
       </button>
     </aside>
   );
-}
+});
 
 function RealismNote({ vent }: { vent: Vent }) {
   const m = vent.match;

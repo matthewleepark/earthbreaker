@@ -7,7 +7,9 @@ import {
   ScreenSpaceEventType,
   type Cartesian2,
 } from "cesium";
-import { GlobeView, type CameraReadout } from "./globe/GlobeView";
+import { GlobeView } from "./globe/GlobeView";
+import { CameraRow, LoadingPill, PerformanceRow } from "./ui/LiveReadouts";
+import { formatLatLon, formatMetres } from "./ui/format";
 import {
   flyToPoint,
   pickGround,
@@ -32,6 +34,8 @@ import { isPhone } from "./ui/isPhone";
 import { SoundBoard } from "./audio/sound";
 
 const sound = new SoundBoard();
+/** How many times App has rendered; read through ?debug to check UI performance. */
+let appRenders = 0;
 
 const ION_TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim() || undefined;
 const VENT_MARKER = "vent";
@@ -57,6 +61,7 @@ type SearchState =
   | { kind: "error"; message: string };
 
 export default function App() {
+  appRenders++;
   const globeRef = useRef<Globe | null>(null);
   const simRef = useRef<SimulationController | null>(null);
   const stopOrbitRef = useRef<(() => void) | null>(null);
@@ -67,8 +72,8 @@ export default function App() {
   const [globeState, setGlobeState] = useState<"loading" | "ready" | "error">("loading");
   const [fatalError, setFatalError] = useState<string>();
   const [providerNote, setProviderNote] = useState<string>();
-  const [camera, setCamera] = useState<CameraReadout>();
-  const [tilesPending, setTilesPending] = useState(0);
+  /** The globe once ready, for components that subscribe to it directly. */
+  const [readyGlobe, setReadyGlobe] = useState<Globe>();
   const [selection, setSelection] = useState<Selection>();
   const [flying, setFlying] = useState(false);
   const [query, setQuery] = useState("");
@@ -107,10 +112,12 @@ export default function App() {
         viewer: globe.viewer,
         sim: simRef.current,
         perf: globe.perf,
+        renders: () => appRenders,
         cesium: { HeadingPitchRange, ParticleSystem, BillboardCollection },
       };
     }
     setGlobeState("ready");
+    setReadyGlobe(globe);
     setQualityState(globe.quality);
     setPhotorealAvailable(!!globe.photoreal);
     if (globe.providerError) {
@@ -306,10 +313,21 @@ export default function App() {
   );
 
   // Both run inside a click, which is when browsers allow audio to start.
-  const trigger = () => {
+  const trigger = useCallback(() => {
     sound.unlock();
     if (vent) runDisaster(vent, params, randomSeed());
-  };
+  }, [vent, params, runDisaster]);
+
+  // Stable callbacks so the (memoised) disaster panel doesn't re-render ten
+  // times a second while a simulation updates the rest of the app.
+  const selectDisaster = useCallback((id: string) => {
+    const next = DISASTERS.find((d) => d.id === id);
+    if (!next?.available) return;
+    setDisasterId(id);
+    setParams(next.defaults);
+  }, []);
+  const changeParam = useCallback((key: string, value: number) => setParams((p) => ({ ...p, [key]: value })), []);
+  const togglePicking = useCallback(() => setPicking((p) => !p), []);
 
   const replay = () => {
     sound.unlock();
@@ -362,8 +380,6 @@ export default function App() {
         ionToken={ION_TOKEN}
         onReady={handleReady}
         onError={handleError}
-        onCamera={setCamera}
-        onTilesPending={setTilesPending}
       />
 
       <header className="topbar">
@@ -456,17 +472,12 @@ export default function App() {
         <DisasterPanel
           disasters={DISASTERS}
           selectedId={disaster.id}
-          onSelect={(id) => {
-            const next = DISASTERS.find((d) => d.id === id);
-            if (!next?.available) return;
-            setDisasterId(id);
-            setParams(next.defaults);
-          }}
+          onSelect={selectDisaster}
           params={params}
-          onParam={(key, value) => setParams((p) => ({ ...p, [key]: value }))}
+          onParam={changeParam}
           vent={vent}
           picking={picking}
-          onPickVent={() => setPicking((p) => !p)}
+          onPickVent={togglePicking}
           busy={sim.status === "preparing"}
           onTrigger={trigger}
         />
@@ -511,13 +522,8 @@ export default function App() {
               ) : (
                 <p className="hint">Search for a place or pick a featured mountain.</p>
               )}
-              {camera && (
-                <Row
-                  label="Camera"
-                  value={`${formatMetres(camera.altitudeM)} up`}
-                  note={formatLatLon(camera.lat, camera.lon)}
-                />
-              )}
+              {readyGlobe && <CameraRow globe={readyGlobe} />}
+              {readyGlobe && <PerformanceRow globe={readyGlobe} />}
               {simActive && (
                 <div className="sim-details">
                   <h3>Simulation</h3>
@@ -557,11 +563,7 @@ export default function App() {
 
       {flash > 0 && sim.effectsVisible && <div key={flash} className="screen-flash" aria-hidden="true" />}
 
-      {ready && (flying || tilesPending > 0) && (
-        <div className="loading-pill" role="status">
-          {flying ? "Flying…" : `Loading map tiles · ${tilesPending}`}
-        </div>
-      )}
+      {readyGlobe && <LoadingPill globe={readyGlobe} flying={flying} />}
 
       {helpOpen && (
         <div className="help-backdrop" onClick={() => setHelpOpen(false)}>
@@ -597,15 +599,4 @@ function Row({ label, value, note }: { label: string; value: string; note?: stri
       </dd>
     </div>
   );
-}
-
-function formatLatLon(lat: number, lon: number) {
-  const ns = lat >= 0 ? "N" : "S";
-  const ew = lon >= 0 ? "E" : "W";
-  return `${Math.abs(lat).toFixed(4)}° ${ns}, ${Math.abs(lon).toFixed(4)}° ${ew}`;
-}
-
-function formatMetres(m: number) {
-  if (Math.abs(m) >= 100_000) return `${Math.round(m / 1000).toLocaleString()} km`;
-  return `${Math.round(m).toLocaleString()} m`;
 }

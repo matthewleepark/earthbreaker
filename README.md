@@ -26,7 +26,10 @@ visualisations, **not** scientific forecasts.
 - The phases:
   - **Warning:** steam, a growing vent glow, a deep rumble, and the camera starting to tremble.
   - **Boom:** a screen flash, a blast-wave ring, a fireball, a pyroclastic surge racing outward and
-    down the slopes, a burst of glowing rock, the column shooting up, and a hard camera shake.
+    down the slopes, the column shooting up, and a hard camera shake.
+  - **Debris:** the summit blows apart into hundreds of pieces: rock, glowing lava bombs that cool
+    as they fly, and blocks of ice on snowy summits. They tumble on ballistic arcs, the big ones
+    trailing smoke, and kick up dust where they land on the terrain.
   - **Main eruption:** a churning ash column with volcanic lightning that lights the cloud, plus
     column collapses that send more surges.
   - **Lava:** flows downhill over the terrain.
@@ -128,8 +131,16 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
   measured every 1.5 s. Below about 28 fps it steps down a level, and above about 52 fps it steps
   back up. Each level lowers render resolution (down to 60%), map tile detail, and the number of
   smoke particles (down to 45%).
+  The details panel shows the current frame rate and quality level under **Rendering**.
 - The plume uses fewer, larger smoke puffs. Overlapping see-through sprites are the main GPU cost.
+- Debris and dust use fixed pools of billboards that are reused, so nothing is allocated mid-eruption.
 - The lava texture is 512 px and repaints about 5 times a second.
+- **UI:**
+  - The panels don't use a backdrop blur. Re-blurring behind them every frame over a live 3D view
+    was what made scrolling stutter.
+  - The camera, tile-loading and frame-rate readouts update themselves a few times a second,
+    instead of re-rendering the whole app on every camera move.
+  - The disaster panel is memoised, so simulation updates don't re-render it.
 
 ## How the eruption works
 
