@@ -1,0 +1,166 @@
+:root {
+  --bg: #07090d;
+  --glass: rgba(12, 15, 21, 0.72);
+  --glass-strong: rgba(12, 15, 21, 0.9);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #eef1f5;
+  --muted: #9aa3b2;
+  --accent: #ff7a3d;
+  --warn-bg: rgba(64, 42, 10, 0.88);
+  --warn-line: rgba(255, 180, 80, 0.4);
+  --radius: 12px;
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); overflow: hidden; }
+button, input { font: inherit; color: inherit; }
+
+.app { position: relative; height: 100%; }
+
+/* ---------- Globe (fills the window) ---------- */
+.globe { position: absolute; inset: 0; }
+.globe .cesium-widget-credits { font-size: 11px; opacity: 0.8; }
+
+/* ---------- Glass surfaces ---------- */
+.topbar > :not(.search), .search form, .panel, .banner, .loading-pill, .results, .help {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* ---------- Top bar ---------- */
+.topbar {
+  position: absolute; top: 14px; left: 14px; right: 14px; z-index: 5;
+  display: flex; align-items: flex-start; gap: 10px;
+  pointer-events: none;
+}
+.topbar > * { pointer-events: auto; }
+
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 16px;
+  font-weight: 800; letter-spacing: 0.18em; font-size: 14px;
+  white-space: nowrap;
+}
+.brand-mark {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffd2a8, var(--accent) 45%, #7a2408);
+  box-shadow: 0 0 12px rgba(255, 122, 61, 0.6);
+}
+
+.search { position: relative; flex: 0 1 420px; min-width: 0; }
+.search form { display: flex; height: 44px; overflow: hidden; }
+.search form:focus-within { border-color: var(--line-strong); }
+.search input {
+  flex: 1; min-width: 0; padding: 0 14px;
+  background: transparent; border: 0; outline: none;
+}
+.search input::placeholder { color: var(--muted); }
+.search form button {
+  padding: 0 16px; border: 0; border-left: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06); cursor: pointer; font-weight: 600;
+}
+.search form button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.search form button:disabled { color: var(--muted); cursor: default; }
+
+.results {
+  position: absolute; top: 52px; left: 0; right: 0;
+  margin: 0; padding: 6px; list-style: none;
+  background: var(--glass-strong);
+  max-height: 60vh; overflow-y: auto;
+}
+.results button {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 9px 10px; border: 0; border-radius: 8px;
+  background: transparent; text-align: left; cursor: pointer;
+}
+.results button:hover, .results button:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
+.results span { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results.note { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+
+.presets {
+  display: flex; gap: 6px; margin-left: auto; padding: 5px;
+}
+.chip {
+  height: 32px; padding: 0 13px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer; font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+.chip:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: var(--line-strong); }
+.chip:disabled { opacity: 0.45; cursor: default; }
+.chip.active { border-color: var(--accent); background: rgba(255, 122, 61, 0.14); }
+.chip.icon { width: 32px; padding: 0; }
+
+/* ---------- Banners and overlays ---------- */
+.banner {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: flex-start; gap: 12px;
+  width: min(680px, calc(100% - 28px));
+  padding: 10px 12px 10px 16px; font-size: 13.5px; line-height: 1.45;
+}
+.banner.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.banner button { flex: none; border: 0; background: none; cursor: pointer; color: var(--muted); padding: 2px 4px; }
+
+.overlay {
+  position: absolute; inset: 0; z-index: 3;
+  display: grid; place-content: center; text-align: center; gap: 6px;
+  background: var(--bg); color: var(--muted); letter-spacing: 0.06em;
+}
+.overlay.error { color: var(--text); padding: 24px; }
+.overlay.error h2 { margin: 0; font-size: 20px; }
+.overlay.error p { margin: 0; max-width: 520px; color: var(--muted); line-height: 1.5; }
+
+.loading-pill {
+  position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); z-index: 4;
+  padding: 7px 14px; font-size: 12.5px; color: var(--muted);
+}
+
+/* ---------- Details panel ---------- */
+.panel {
+  /* Sits above Cesium's credit line, which must stay visible for data attribution. */
+  position: absolute; left: 14px; bottom: 44px; z-index: 4;
+  width: 300px; padding: 12px 14px 14px;
+}
+.panel.collapsed { width: auto; padding: 6px; }
+.panel-toggle {
+  display: block; margin-left: auto;
+  border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 4px;
+}
+.panel.collapsed .panel-toggle { margin: 0; color: var(--text); }
+.panel dl { margin: 4px 0 0; }
+.place h2 { margin: 0; font-size: 18px; }
+.place p { margin: 2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.place .tag {
+  display: inline-block; margin-top: 8px; padding: 3px 8px;
+  border: 1px solid var(--warn-line); border-radius: 6px; color: #ffc98a; font-size: 12px;
+}
+.row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 8px 0 0; margin-top: 8px; border-top: 1px solid var(--line); }
+.row dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; padding-top: 2px; }
+.row dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.row small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.hint { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+/* ---------- Help dialog ---------- */
+.help-backdrop { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
+.help { width: min(420px, calc(100% - 32px)); padding: 20px 22px; background: var(--glass-strong); }
+.help h2 { margin: 0 0 10px; font-size: 18px; }
+.help ul { margin: 0 0 12px; padding-left: 18px; line-height: 1.9; font-size: 14px; }
+.help kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 12px; background: rgba(255, 255, 255, 0.05); }
+.help .fine { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 0 0 14px; }
+
+/* ---------- Narrow screens ---------- */
+@media (max-width: 760px) {
+  .topbar { flex-wrap: wrap; }
+  .search { flex: 1 1 100%; order: 3; }
+  .presets { margin-left: 0; }
+  .banner { top: 128px; }
+  .panel { width: calc(100% - 28px); }
+}
