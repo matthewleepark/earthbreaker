@@ -1,4 +1,5 @@
 import { JulianDate, type Clock, type Viewer } from "cesium";
+import type { SoundBoard } from "../audio/sound";
 import type { DisasterContext, DisasterDefinition, DisasterInstance, Metric, Params, Site } from "./types";
 
 export type SimStatus = "idle" | "preparing" | "running" | "paused" | "finished";
@@ -11,6 +12,8 @@ export interface SimState {
   phase: string;
   metrics: Metric[];
   effectsVisible: boolean;
+  /** Explosive moments so far; the UI flashes the screen when this goes up. */
+  booms: number;
   seed?: number;
   error?: string;
 }
@@ -23,15 +26,21 @@ export const IDLE_STATE: SimState = {
   phase: "",
   metrics: [],
   effectsVisible: true,
+  booms: 0,
 };
+
+/** Strongest camera shake, as a look-around angle in radians (about 0.6°). */
+const MAX_SHAKE_RAD = 0.011;
 
 /**
  * Runs one disaster at a time on Cesium's clock. Particle systems already
  * advance with that clock, so pausing it freezes every effect at once and the
- * speed multiplier time-lapses all of them together.
+ * speed multiplier time-lapses all of them together. It also applies the
+ * disaster's camera shake and pauses its sound with the clock.
  */
 export class SimulationController {
   private readonly viewer: Viewer;
+  private readonly sound: SoundBoard;
   private readonly onChange: (state: SimState) => void;
   private instance?: DisasterInstance;
   private startTime?: JulianDate;
@@ -43,9 +52,13 @@ export class SimulationController {
   private state: SimState = IDLE_STATE;
   /** Bumped on every trigger/reset so a slow create() can tell it was superseded. */
   private generation = 0;
+  /** The shake applied last frame, undone before the next one so the camera never drifts. */
+  private shakeX = 0;
+  private shakeY = 0;
 
-  constructor(viewer: Viewer, onChange: (state: SimState) => void) {
+  constructor(viewer: Viewer, sound: SoundBoard, onChange: (state: SimState) => void) {
     this.viewer = viewer;
+    this.sound = sound;
     this.onChange = onChange;
   }
 
@@ -75,6 +88,7 @@ export class SimulationController {
     this.lastElapsed = 0;
     clock.multiplier = this.state.speed;
     clock.shouldAnimate = true;
+    this.sound.resume();
     this.removeTick = clock.onTick.addEventListener((c: Clock) => this.tick(c));
     this.set({ ...this.state, status: "running", duration: instance.duration });
     return instance;
@@ -83,12 +97,15 @@ export class SimulationController {
   pause() {
     if (this.state.status !== "running") return;
     this.viewer.clock.shouldAnimate = false;
+    this.unshake();
+    this.sound.pause();
     this.set({ ...this.state, status: "paused" });
   }
 
   resume() {
     if (this.state.status !== "paused") return;
     this.viewer.clock.shouldAnimate = true;
+    this.sound.resume();
     this.set({ ...this.state, status: "running" });
   }
 
@@ -99,6 +116,7 @@ export class SimulationController {
 
   setEffectsVisible(visible: boolean) {
     this.instance?.setVisible(visible);
+    this.viewer.scene.requestRender();
     this.set({ ...this.state, effectsVisible: visible });
   }
 
@@ -107,12 +125,15 @@ export class SimulationController {
     this.generation++;
     this.removeTick?.();
     this.removeTick = undefined;
+    this.unshake();
     this.instance?.destroy();
     this.instance = undefined;
+    this.sound.stop();
     const clock = this.viewer.clock;
     clock.shouldAnimate = false;
     if (this.timeBefore) clock.currentTime = this.timeBefore;
     this.timeBefore = undefined;
+    this.viewer.scene.requestRender();
     this.set({ ...IDLE_STATE, speed: this.state.speed });
   }
 
@@ -133,6 +154,9 @@ export class SimulationController {
     this.lastElapsed = elapsed;
     instance.update(elapsed, dt);
 
+    this.unshake();
+    if (clock.shouldAnimate && !finished) this.applyShake(instance.shake());
+
     if (finished) {
       // Stop the clock but keep the aftermath on screen to inspect.
       clock.shouldAnimate = false;
@@ -141,19 +165,39 @@ export class SimulationController {
       this.removeTick = undefined;
     }
 
-    // React only needs about ten updates a second.
+    // React only needs about ten updates a second, but never miss a boom.
     const now = performance.now();
-    if (finished || now - this.lastEmit > 100) {
+    const { phase, metrics, booms } = instance.status();
+    if (finished || booms !== this.state.booms || now - this.lastEmit > 100) {
       this.lastEmit = now;
-      const { phase, metrics } = instance.status();
       this.set({
         ...this.state,
         status: finished ? "finished" : this.state.status,
         elapsed,
         phase,
         metrics,
+        booms,
       });
     }
+  }
+
+  /** Turns the camera by a small random angle; strength 0–1. */
+  private applyShake(strength: number) {
+    if (strength <= 0.002) return;
+    const camera = this.viewer.camera;
+    const angle = MAX_SHAKE_RAD * Math.min(1, strength);
+    this.shakeX = (Math.random() * 2 - 1) * angle;
+    this.shakeY = (Math.random() * 2 - 1) * angle;
+    camera.lookRight(this.shakeX);
+    camera.lookUp(this.shakeY);
+  }
+
+  private unshake() {
+    if (this.shakeX === 0 && this.shakeY === 0) return;
+    const camera = this.viewer.camera;
+    camera.lookUp(-this.shakeY);
+    camera.lookRight(-this.shakeX);
+    this.shakeX = this.shakeY = 0;
   }
 
   private set(state: SimState) {

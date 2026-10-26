@@ -236,6 +236,22 @@ button, input { font: inherit; color: inherit; }
 .help kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 12px; background: rgba(255, 255, 255, 0.05); }
 .help .fine { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 0 0 14px; }
 
+/* ---------- Boom flash (whole screen, replays on each boom) ---------- */
+.screen-flash {
+  /* Above the globe, below the panels, so the UI stays readable. */
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: radial-gradient(circle at 50% 55%, rgba(255, 246, 225, 0.95), rgba(255, 170, 90, 0.55) 45%, rgba(120, 40, 10, 0.25) 100%);
+  animation: boom-flash 2.2s ease-out forwards;
+}
+@keyframes boom-flash {
+  0% { opacity: 0; }
+  4% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-flash { animation-duration: 0.6s; }
+}
+
 /* ---------- Narrower screens ---------- */
 @media (max-width: 1180px) {
   /* No room between the side panels: the sim bar spans the bottom and the details panel moves up. */

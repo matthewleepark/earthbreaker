@@ -23,8 +23,16 @@ visualisations, **not** scientific forecasts.
 
 - Pick a vent: the selected place, or any point with **Pick on map**
 - Settings: intensity, duration, ash-plume scale, lava amount, wind direction and strength
-- Four phases: warning (steam, vent glow) → main eruption (flash, ash column, glowing ejecta) →
-  lava flowing downhill over the terrain → aftermath (the plume thins, lava crusts over into dark rock)
+- The phases:
+  - **Warning:** steam, a growing vent glow, a deep rumble, and the camera starting to tremble.
+  - **Boom:** a screen flash, a blast-wave ring, a fireball, a pyroclastic surge racing outward and
+    down the slopes, a burst of glowing rock, the column shooting up, and a hard camera shake.
+  - **Main eruption:** a churning ash column with volcanic lightning that lights the cloud, plus
+    column collapses that send more surges.
+  - **Lava:** flows downhill over the terrain.
+  - **Aftermath:** the plume thins and the lava crusts over into dark rock.
+- Sound, synthesised in the browser (no audio files): rumble, boom, roar, thunder. Toggle it with
+  **Sound on/off**; the choice is remembered.
 - Controls: Pause/Resume, Reset, Replay (same random seed), 1×/2×/4× speed, Before/After, Orbit camera
 - Simulation numbers in the details panel: lava-covered area, runout, share still molten
 - Every eruption is labelled: **real volcano** (from a built-in list), **fictional** (e.g. Everest),
@@ -112,6 +120,17 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
 | Ctrl + left-drag, or middle-drag | Tilt and turn the camera |
 | Esc | Close menus, or cancel picking a vent |
 
+## Performance
+
+- **Render on demand.** Cesium only draws a frame when something changes: the camera moves, tiles
+  load, or a disaster's clock runs. A still view costs almost nothing.
+- **Automatic quality** (`globe/performance.ts`). While the scene is animating, the frame rate is
+  measured every 1.5 s. Below about 28 fps it steps down a level, and above about 52 fps it steps
+  back up. Each level lowers render resolution (down to 60%), map tile detail, and the number of
+  smoke particles (down to 45%).
+- The plume uses fewer, larger smoke puffs. Overlapping see-through sprites are the main GPU cost.
+- The lava texture is 512 px and repaints about 5 times a second.
+
 ## How the eruption works
 
 Everything runs on Cesium's clock. Cesium's particle systems already move with that clock, so
@@ -119,7 +138,8 @@ pausing it freezes every effect at once, and the speed buttons are just the cloc
 `disasters/controller.ts` owns the clock. Each disaster gets `update(elapsed)` every frame and has to
 clean up all of its own effects in `destroy()`.
 
-**Ash plume** (`volcano/plume.ts`): a few thousand smoke sprites (Cesium `ParticleSystem`).
+**Ash plume** (`volcano/plume.ts`): about 1,500 smoke sprites (Cesium `ParticleSystem`), plus
+surges, ejecta, a blast ring, a fireball and lightning bolts (`PolylineCollection`).
 
 - Each puff rises quickly at first and slows as it nears the set column height.
 - The column widens as it climbs, spreads into an umbrella cloud at the top, and bends with the wind,
@@ -146,8 +166,9 @@ What this model is and isn't:
 - Area and runout are real outputs of the model, labelled as estimates. The ash column height is a
   setting, not something the model computes.
 - In the aftermath, cooling is sped up as part of the time-lapse, so flows finish as rock.
-- Particle motion uses `Math.random`, so only the lava is exactly repeatable with a seed. The plume is
-  only similar each time.
+- Particle motion, lightning timing and sound use `Math.random`, so only the lava is exactly
+  repeatable with a seed. The rest is only similar each time.
+- The blast ring, fireball, surges and shake are cinematic effects, not modelled physics.
 
 ```
 src/

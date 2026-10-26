@@ -1,5 +1,7 @@
 import type { Viewer } from "cesium";
 import type { ProviderMode } from "../globe/createGlobe";
+import type { PerformanceMonitor } from "../globe/performance";
+import type { SoundBoard } from "../audio/sound";
 
 /** Where a disaster happens. `heightM` is the ground height there, if known. */
 export interface Site {
@@ -33,11 +35,16 @@ export interface Metric {
 export interface DisasterStatus {
   phase: string;
   metrics: Metric[];
+  /** Counts big explosive moments so the UI can flash the screen for each. */
+  booms: number;
 }
 
 export interface DisasterContext {
   viewer: Viewer;
   providerMode: ProviderMode;
+  sound: SoundBoard;
+  /** Read `perf.effects` for how many particles the machine can afford right now. */
+  perf: PerformanceMonitor;
 }
 
 /**
@@ -52,6 +59,8 @@ export interface DisasterInstance {
   readonly framing: { lon: number; lat: number; heightM: number; range: number; heading: number; pitch: number };
   update(elapsed: number, dt: number): void;
   status(): DisasterStatus;
+  /** How hard the camera should shake right now, 0–1. */
+  shake(): number;
   /** Hides or shows every effect, for the before/after comparison. */
   setVisible(visible: boolean): void;
   destroy(): void;

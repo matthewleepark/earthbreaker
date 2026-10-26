@@ -29,6 +29,9 @@ import type { Params } from "./disasters/types";
 import { DisasterPanel, type Vent } from "./ui/DisasterPanel";
 import { SimControls } from "./ui/SimControls";
 import { isPhone } from "./ui/isPhone";
+import { SoundBoard } from "./audio/sound";
+
+const sound = new SoundBoard();
 
 const ION_TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim() || undefined;
 const VENT_MARKER = "vent";
@@ -85,15 +88,25 @@ export default function App() {
   const [picking, setPicking] = useState(false);
   const [sim, setSim] = useState<SimState>(IDLE_STATE);
   const [orbiting, setOrbiting] = useState(false);
+  const [muted, setMuted] = useState(sound.muted);
+  /** Bumped on each boom; keys the screen-flash element so its animation replays. */
+  const [flash, setFlash] = useState(0);
+  const lastBooms = useRef(0);
+
+  useEffect(() => {
+    if (sim.booms > lastBooms.current) setFlash((n) => n + 1);
+    lastBooms.current = sim.booms;
+  }, [sim.booms]);
 
   const handleReady = useCallback((globe: Globe) => {
     globeRef.current = globe;
-    simRef.current = new SimulationController(globe.viewer, setSim);
+    simRef.current = new SimulationController(globe.viewer, sound, setSim);
     // ?debug exposes the viewer in the console for testing camera views.
     if (new URLSearchParams(window.location.search).has("debug")) {
       (window as unknown as { earthbreaker: unknown }).earthbreaker = {
         viewer: globe.viewer,
         sim: simRef.current,
+        perf: globe.perf,
         cesium: { HeadingPitchRange, ParticleSystem, BillboardCollection },
       };
     }
@@ -276,7 +289,7 @@ export default function App() {
       lastRunRef.current = { vent: runVent, params: runParams, seed };
       const ground = await sampleGroundHeight(globe, runVent.lon, runVent.lat);
       const instance = await controller.trigger(
-        { viewer: globe.viewer, providerMode: globe.mode },
+        { viewer: globe.viewer, providerMode: globe.mode, sound, perf: globe.perf },
         disaster,
         { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
         runParams,
@@ -292,13 +305,22 @@ export default function App() {
     [disaster, resetSim],
   );
 
+  // Both run inside a click, which is when browsers allow audio to start.
   const trigger = () => {
+    sound.unlock();
     if (vent) runDisaster(vent, params, randomSeed());
   };
 
   const replay = () => {
+    sound.unlock();
     const last = lastRunRef.current;
     if (last) runDisaster(last.vent, last.params, last.seed);
+  };
+
+  const toggleSound = () => {
+    sound.unlock();
+    sound.setMuted(!muted);
+    setMuted(!muted);
   };
 
   const toggleOrbit = () => {
@@ -528,8 +550,12 @@ export default function App() {
           onSpeed={(s) => simRef.current?.setSpeed(s)}
           onToggleEffects={() => simRef.current?.setEffectsVisible(!sim.effectsVisible)}
           onToggleOrbit={toggleOrbit}
+          muted={muted}
+          onToggleSound={toggleSound}
         />
       )}
+
+      {flash > 0 && sim.effectsVisible && <div key={flash} className="screen-flash" aria-hidden="true" />}
 
       {ready && (flying || tilesPending > 0) && (
         <div className="loading-pill" role="status">

@@ -23,6 +23,7 @@ import {
   type TerrainProvider,
 } from "cesium";
 import type { CameraView } from "../data/places";
+import { PerformanceMonitor } from "./performance";
 
 export type ProviderMode = "ion" | "fallback";
 
@@ -43,6 +44,7 @@ export interface Globe {
   /** Why photorealistic tiles are unavailable, when ion works but they don't. */
   photorealError?: string;
   quality: Quality;
+  perf: PerformanceMonitor;
 }
 
 /**
@@ -97,9 +99,11 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
   scene.backgroundColor = Color.BLACK;
   if (scene.skyAtmosphere) scene.skyAtmosphere.show = true;
   scene.postProcessStages.fxaa.enabled = true;
-  // Render at the screen's real pixel density (crisper on high-DPI screens),
-  // but not beyond 2x, where the cost outweighs what the eye can see.
-  if (window.devicePixelRatio <= 2) viewer.useBrowserRecommendedResolution = false;
+  // Only draw a frame when something changed (camera, tiles loading, or
+  // simulation time while a disaster runs) instead of 60 times a second
+  // regardless. This is the biggest saving when the view is still.
+  scene.requestRenderMode = true;
+  scene.maximumRenderTimeChange = 0;
   // The sun stays where we put it; it only moves when we fly somewhere new.
   viewer.clock.shouldAnimate = false;
   setLocalMorning(viewer, -30);
@@ -112,15 +116,25 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
 
   viewer.camera.setView({ destination: Cartesian3.fromDegrees(-30, 25, 22_000_000) });
 
-  const globe: Globe = { viewer, mode, providerError, quality: "terrain" };
+  let photoreal: Cesium3DTileset | undefined;
+  let photorealError: string | undefined;
   if (mode === "ion") {
     try {
-      globe.photoreal = await loadPhotoreal(viewer);
-      setQuality(globe, preferredQuality());
+      photoreal = await loadPhotoreal(viewer);
     } catch (err) {
-      globe.photorealError = describePhotorealError(err);
+      photorealError = describePhotorealError(err);
     }
   }
+  const globe: Globe = {
+    viewer,
+    mode,
+    providerError,
+    photoreal,
+    photorealError,
+    quality: "terrain",
+    perf: new PerformanceMonitor(viewer, photoreal),
+  };
+  if (photoreal) setQuality(globe, preferredQuality());
   return globe;
 }
 
@@ -155,6 +169,7 @@ export function setQuality(globe: Globe, quality: Quality) {
   // Terrain still loads in the background for height sampling.
   globe.viewer.scene.globe.show = !photoreal;
   globe.quality = photoreal ? "photoreal" : "terrain";
+  globe.viewer.scene.requestRender();
   try {
     localStorage.setItem(QUALITY_KEY, globe.quality);
   } catch {
@@ -273,14 +288,20 @@ export function startOrbit(viewer: Viewer, lon: number, lat: number, heightM: nu
   const pitch = Math.min(-0.05, camera.pitch);
   let heading = camera.heading;
   let last = performance.now();
-  const remove = viewer.scene.preRender.addEventListener(() => {
+  let frame = 0;
+  // In request-render mode nothing redraws on its own, so keep asking for
+  // frames while the orbit runs (e.g. after a disaster has ended).
+  const tick = () => {
     const now = performance.now();
     heading += CesiumMath.toRadians(degreesPerSecond) * ((now - last) / 1000);
     last = now;
     camera.lookAt(centre, new HeadingPitchRange(heading, pitch, range));
-  });
+    viewer.scene.requestRender();
+    frame = requestAnimationFrame(tick);
+  };
+  frame = requestAnimationFrame(tick);
   return () => {
-    remove();
+    cancelAnimationFrame(frame);
     camera.lookAtTransform(Matrix4.IDENTITY);
   };
 }

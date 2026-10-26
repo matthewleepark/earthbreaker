@@ -12,7 +12,8 @@ import {
 import { SOLID_TEMPERATURE, type LavaSim } from "./lavaSim";
 import { crustTexture } from "./textures";
 
-const TEXTURE_SIZE = 768;
+/** 512 px over a 7–20 km square is 14–40 m per pixel, finer than the 55–160 m model cells. */
+const TEXTURE_SIZE = 512;
 
 // Colour by temperature, from fresh (1) to cold rock. Matches the look of
 // aerial lava photos: yellow-white cores, orange channels, dark red edges and

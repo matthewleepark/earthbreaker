@@ -10,12 +10,15 @@ interface Props {
   onSpeed: (speed: number) => void;
   onToggleEffects: () => void;
   onToggleOrbit: () => void;
+  muted: boolean;
+  onToggleSound: () => void;
 }
 
 const SPEEDS = [1, 2, 4];
 
 /** Bottom bar for a running disaster: transport, speed, timeline and before/after. */
-export function SimControls({ state, orbiting, onPause, onResume, onReset, onReplay, onSpeed, onToggleEffects, onToggleOrbit }: Props) {
+export function SimControls(props: Props) {
+  const { state, orbiting, onPause, onResume, onReset, onReplay, onSpeed, onToggleEffects, onToggleOrbit, muted, onToggleSound } = props;
   const { status, elapsed, duration, phase, speed, effectsVisible } = state;
   const progress = duration ? Math.min(1, elapsed / duration) : 0;
   const preparing = status === "preparing";
@@ -54,6 +57,9 @@ export function SimControls({ state, orbiting, onPause, onResume, onReset, onRep
         </button>
         <button type="button" className={orbiting ? "chip active" : "chip"} onClick={onToggleOrbit} disabled={preparing}>
           Orbit
+        </button>
+        <button type="button" className={muted ? "chip" : "chip active"} onClick={onToggleSound} aria-pressed={!muted}>
+          {muted ? "Sound off" : "Sound on"}
         </button>
       </div>
 

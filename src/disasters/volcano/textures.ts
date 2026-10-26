@@ -55,6 +55,34 @@ export function glowTexture(): HTMLCanvasElement {
   return canvas;
 }
 
+let shockRing: HTMLCanvasElement | undefined;
+
+/**
+ * The blast wave. A shell of compressed air seen from any side is a circle
+ * with a bright rim and a faint interior, so a camera-facing ring sprite reads
+ * as a sphere expanding from the vent.
+ */
+export function shockRingTexture(): HTMLCanvasElement {
+  if (shockRing) return shockRing;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  // A bright condensation rim with a darker dust band just outside it, so the
+  // ring stands out on both dark rock and bright snow.
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, "rgba(255,255,255,0.08)");
+  g.addColorStop(0.68, "rgba(255,255,255,0.16)");
+  g.addColorStop(0.86, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.91, "rgba(150,140,130,0.75)");
+  g.addColorStop(0.96, "rgba(70,62,55,0.4)");
+  g.addColorStop(1, "rgba(70,62,55,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  shockRing = canvas;
+  return canvas;
+}
+
 /** Tileable-looking crust noise: dark speckles and cracks to break up the lava's grid. */
 export function crustTexture(size: number, rng: () => number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
