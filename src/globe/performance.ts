@@ -19,9 +19,10 @@ interface Level {
   name: string;
   /** Render resolution relative to CSS pixels. */
   resolution: number;
-  /** Detail of Google's 3D tiles and of the terrain (lower = sharper, heavier). */
+  /** Detail of Google's 3D tiles, the terrain and OSM buildings (lower = sharper, heavier). */
   tilesError: number;
   globeError: number;
+  buildingsError: number;
   /** Multiplier on effect particle counts. */
   effects: number;
 }
@@ -29,11 +30,11 @@ interface Level {
 function levels(): Level[] {
   const sharp = Math.min(window.devicePixelRatio || 1, 1.5);
   return [
-    { name: "Ultra", resolution: sharp, tilesError: 8, globeError: 1.5, effects: 1 },
-    { name: "High", resolution: 1, tilesError: 12, globeError: 1.75, effects: 1 },
-    { name: "Medium", resolution: 0.85, tilesError: 16, globeError: 2, effects: 0.75 },
-    { name: "Low", resolution: 0.72, tilesError: 20, globeError: 2.5, effects: 0.55 },
-    { name: "Lowest", resolution: 0.6, tilesError: 28, globeError: 3, effects: 0.4 },
+    { name: "Ultra", resolution: sharp, tilesError: 8, globeError: 1.5, buildingsError: 8, effects: 1 },
+    { name: "High", resolution: 1, tilesError: 12, globeError: 1.75, buildingsError: 12, effects: 1 },
+    { name: "Medium", resolution: 0.85, tilesError: 16, globeError: 2, buildingsError: 16, effects: 0.75 },
+    { name: "Low", resolution: 0.72, tilesError: 20, globeError: 2.5, buildingsError: 24, effects: 0.55 },
+    { name: "Lowest", resolution: 0.6, tilesError: 28, globeError: 3, buildingsError: 32, effects: 0.4 },
   ];
 }
 
@@ -68,6 +69,7 @@ const IDLE_GAP_MS = 250;
 export class PerformanceMonitor {
   private readonly viewer: Viewer;
   private readonly tileset?: Cesium3DTileset;
+  private readonly buildings?: Cesium3DTileset;
   private readonly table = levels();
   private level = 1;
   private lastFrame = 0;
@@ -82,9 +84,10 @@ export class PerformanceMonitor {
   /** Most recent measured frame rate while animating. */
   fps?: number;
 
-  constructor(viewer: Viewer, tileset?: Cesium3DTileset) {
+  constructor(viewer: Viewer, tileset?: Cesium3DTileset, buildings?: Cesium3DTileset) {
     this.viewer = viewer;
     this.tileset = tileset;
+    this.buildings = buildings;
     const saved = readSavedMode();
     if (saved) {
       this.automatic = false;
@@ -171,6 +174,7 @@ export class PerformanceMonitor {
     this.viewer.resolutionScale = l.resolution;
     this.viewer.scene.globe.maximumScreenSpaceError = l.globeError;
     if (this.tileset) this.tileset.maximumScreenSpaceError = l.tilesError;
+    if (this.buildings) this.buildings.maximumScreenSpaceError = l.buildingsError;
     this.viewer.scene.requestRender();
   }
 }

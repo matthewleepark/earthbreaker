@@ -32,7 +32,12 @@ visualisations, **not** scientific forecasts.
     trailing smoke, and kick up dust where they land on the terrain.
   - **Main eruption:** a churning ash column with volcanic lightning that lights the cloud, plus
     column collapses that send more surges.
-  - **Lava:** flows downhill over the terrain.
+  - **Lava:** breaks out through the lowest notch of the crater and flows downhill over the
+    terrain. Big eruptions run 8–10 km, far enough to reach the towns on the lower slopes.
+  - **Buildings burn:** when lava reaches a real building, the building glows and flickers orange,
+    flames and a column of smoke rise from it, and it chars black. If the lava is deep enough to
+    bury it, it collapses in a burst of dust. The details panel counts buildings reached and
+    buried.
   - **Aftermath:** the plume thins and the lava crusts over into dark rock.
 - Sound, synthesised in the browser (no audio files): rumble, boom, roar, thunder. Toggle it with
   **Sound on/off**; the choice is remembered.
@@ -53,6 +58,11 @@ visualisations, **not** scientific forecasts.
 - **Photoreal 3D** (default when available): Google Photorealistic 3D Tiles, a textured 3D mesh of the
   whole world like Google Earth, streamed through your Cesium ion token. The top-bar button switches
   back to terrain + satellite imagery, and the choice is remembered in this browser.
+- **3D buildings** appear when you zoom below about 25 km.
+  - In terrain mode they're Cesium OSM Buildings, real OpenStreetMap footprints extruded to their
+    heights and tinted by type (homes, commercial, churches).
+  - In Photoreal mode, Google's mesh already contains the buildings. The OSM data stays hidden and
+    is only used to know where buildings are for the lava.
 - **Overview / Close-up** buttons in the details panel. The camera can get down to 15 m from the
   ground, and collision stops it from passing into mountains.
 - Sharper rendering in both modes: finer terrain tiles, full pixel density on high-DPI screens, and
@@ -152,6 +162,11 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
 - The plume uses fewer, larger smoke puffs. Overlapping see-through sprites are the main GPU cost.
 - Debris and dust use fixed pools of billboards that are reused, so nothing is allocated mid-eruption.
 - The lava texture is 512 px and repaints about 5 times a second.
+- The lava model gets at most 6 ms of each frame. When it falls behind (on a slow computer, or at
+  4×), it takes longer steps to catch up instead of drifting behind the clock.
+- Every sprite is shared by URL, so the thousands of smoke particles use one copy of the puff
+  image instead of thousands.
+- Buildings only load below about 25 km, and their detail level follows the automatic quality.
 - **UI:**
   - The panels don't use a backdrop blur. Re-blurring behind them every frame over a live 3D view
     was what made scrolling stutter.
@@ -176,8 +191,13 @@ surges, ejecta, a blast ring, a fireball and lightning bolts (`PolylineCollectio
   vent glow.
 - Ejecta are glowing sprites on ballistic arcs.
 
-**Lava** (`volcano/lavaSim.ts`, `lavaLayer.ts`): a cellular automaton on a 128 × 128 grid of real
-terrain heights, sampled from Cesium World Terrain around the vent.
+**Lava** (`volcano/lavaSim.ts`, `lavaLayer.ts`): a cellular automaton on a 176 × 176 grid of real
+terrain heights, sampled from Cesium World Terrain around the vent. The grid covers 10–26 km across,
+depending on the lava setting.
+
+- **Breach vent:** lava erupts from a short fissure running from the summit to the lowest point on a
+  ring about 700 m out, like a notch in the crater rim. Without this, lava on a round summit spreads
+  as a sheet in every direction and never travels far.
 
 - Every 0.1 s of simulated time, molten lava moves from each cell to its lower neighbours. It's
   weighted heavily toward the steepest way down, which is what forms channels and lobes.
@@ -197,6 +217,13 @@ What this model is and isn't:
 - Particle motion, lightning timing and sound use `Math.random`, so only the lava is exactly
   repeatable with a seed. The rest is only similar each time.
 - The blast ring, fireball, surges and shake are cinematic effects, not modelled physics.
+- **Building damage** (`volcano/fires.ts`) is a simple rule, not an engineering model:
+  - A building is "reached" when the model has at least 0.3 m of lava in its cell.
+  - It's "buried" when the lava there is deeper than 2.5 m, or 40% of the building's height.
+  - Only buildings in map tiles that have loaded are counted, so zoom in on a town to see all of
+    them.
+- When the lava model takes longer steps to catch up, the exact flow pattern differs slightly
+  between fast and slow computers, even with the same seed.
 
 ```
 src/
@@ -249,7 +276,12 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 - Lava is modelled only inside a square around the vent (about 7–20 km across, depending on the
   lava setting). The details panel says when a flow reaches the edge.
 - The sun is fixed at about 10:30 local time at each destination, so terrain is always lit.
-- No 3D buildings yet.
+- **Buildings and fires haven't been checked in a browser yet**, because they need the ion token.
+  They're built on Cesium OSM Buildings' `cesium#latitude`, `cesium#longitude` and
+  `cesium#estimatedHeight` properties. If those are missing, the console says so, and buildings
+  still show but won't burn.
+- In Photoreal mode, burning buildings show flames and smoke, but Google's mesh can't be recoloured
+  or removed, so they don't visibly char or collapse.
 - Desktop first. It works on phones, but the globe controls are built for a mouse.
 - The production bundle is large (~4.4 MB, ~1.2 MB gzipped), almost all of it CesiumJS.
 
@@ -261,6 +293,6 @@ Taken from the project blueprint. The eruption was moved ahead of buildings on r
 2. ~~Real-world navigation (search, Everest, Rainier)~~
 3. ~~First disaster: volcanic eruption~~
 4. ~~Simulation controls: pause, resume, reset, timeline, before/after~~
-5. Environment: 3D buildings where data exists (Cesium OSM Buildings / Google Photorealistic 3D Tiles), procedural settlements where it doesn't
+5. ~~Environment: 3D buildings (Cesium OSM Buildings / Google Photorealistic 3D Tiles)~~; procedural settlements where there's no building data are still to do
 6. Polish: lighting, camera work, performance
 7. More disasters: meteor impact, earthquake, landslide

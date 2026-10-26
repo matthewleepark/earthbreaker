@@ -2,7 +2,7 @@
 // Exercises the lava model on made-up terrain, where the right answer is known.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LavaSim, SOLID_TEMPERATURE } from "../src/disasters/volcano/lavaSim.ts";
+import { LavaSim, SOLID_TEMPERATURE, breachVent } from "../src/disasters/volcano/lavaSim.ts";
 import { seededRandom } from "../src/disasters/random.ts";
 
 const N = 96;
@@ -76,6 +76,30 @@ test("cools and stops once the vent shuts off", () => {
   const area = sim.coveredAreaKm2();
   sim.step(5, 0);
   assert.equal(sim.coveredAreaKm2(), area, "solid lava does not keep spreading");
+});
+
+test("a breached vent sends a big eruption kilometres downhill, toward the lowest side", () => {
+  // A concave volcano like Rainier or Vesuvius: steep summit, gentle lower flanks,
+  // with one valley cut deeper toward the west.
+  const size = 160;
+  const cell = 150;
+  const ground = new Float32Array(size * size);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const x = (c - size / 2) * cell;
+      const y = (size / 2 - r) * cell;
+      const d = Math.hypot(x, y);
+      const westValley = x < 0 ? 120 * Math.exp(-((y / 600) ** 2)) * Math.min(1, d / 800) : 0;
+      ground[r * size + c] = 3500 * Math.exp(-d / 4500) + 300 - westValley;
+    }
+  }
+  const vent = breachVent(ground, size, cell);
+  const sim = new LavaSim({ size, cellSizeM: cell, ground, ventCells: vent, rng: seededRandom(5) });
+  for (let t = 0; t < 55; t += 0.1) sim.step(0.1, 300_000);
+
+  const ventCol = (vent[vent.length - 1] % size) - size / 2;
+  assert.ok(ventCol < 0, "the breach opens on the side of the deeper valley (west)");
+  assert.ok(sim.runoutKm() > 5, `runout ${sim.runoutKm().toFixed(1)} km`);
 });
 
 test("the same seed gives the same flow", () => {

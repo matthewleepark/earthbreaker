@@ -1,15 +1,19 @@
 import { Cartesian3, Cartographic, Rectangle, sampleTerrainMostDetailed } from "cesium";
 import type { DisasterContext, DisasterDefinition, DisasterInstance, DisasterStatus, Metric, Params, Site } from "../types";
 import { seededRandom } from "../random";
-import { LavaSim } from "./lavaSim";
+import { LavaSim, breachVent } from "./lavaSim";
+import { BuildingFires } from "./fires";
 import { LavaLayer } from "./lavaLayer";
 import { Plume } from "./plume";
 import { Debris } from "./debris";
 
-const GRID = 128;
+/** Lava model resolution: 176 × 176 cells, 57–150 m each depending on the lava setting. */
+const GRID = 176;
+/** Normal model step; longer steps (up to the max) are used to catch up when behind. */
 const LAVA_STEP_S = 0.1;
-/** Cap on model steps per frame so a slow frame can't snowball. */
-const MAX_STEPS_PER_FRAME = 30;
+const LAVA_MAX_STEP_S = 0.5;
+/** Milliseconds of each frame the lava model may use, so it can't stall the frame. */
+const LAVA_BUDGET_MS = 6;
 /** Repainting and re-uploading the lava texture is the costly part; ~5 times a second looks smooth. */
 const LAVA_REPAINT_MS = 200;
 /** Column heights by intensity 1–5, in km, before the plume-scale multiplier. */
@@ -74,9 +78,10 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     intensity,
   });
 
-  // Lava grid: a square centred on the vent, bigger for stronger flows.
+  // Lava grid: a square centred on the vent, from 10 km across (setting 1) to
+  // 26 km (setting 5), big enough for flows to reach towns on the lower slopes.
   const lavaOn = params.lava > 0;
-  const halfSizeM = 2500 + params.lava * 1300;
+  const halfSizeM = 3000 + params.lava * 2000;
   const cellM = (2 * halfSizeM) / GRID;
   const dLat = halfSizeM / 110_540;
   const dLon = halfSizeM / (111_320 * Math.cos((site.lat * Math.PI) / 180));
@@ -100,12 +105,12 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     groundLowest = ground.reduce((a, b) => Math.min(a, b), Infinity);
     terrainNote = loaded.note;
     if (!lavaOn) return;
-    const mid = (GRID / 2) * GRID + GRID / 2;
     sim = new LavaSim({
       size: GRID,
       cellSizeM: cellM,
       ground,
-      ventCells: [mid, mid - 1, mid + 1, mid - GRID, mid + GRID],
+      // Lava breaks out through the lowest notch of the crater and runs down that side.
+      ventCells: breachVent(ground, GRID, cellM),
       rng,
     });
     layer = new LavaLayer(viewer.scene, sim, rectangle, rng);
@@ -129,6 +134,23 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     // Outside the grid (or before it loads): assume the slopes keep falling away.
     return Math.max(groundLowest, site.heightM - 0.3 * Math.hypot(east, north));
   };
+
+  // Real OpenStreetMap buildings in the lava's path catch fire when it reaches them.
+  const metresPerLon = 111_320 * Math.cos((site.lat * Math.PI) / 180);
+  const fires =
+    lavaOn && ctx.buildings
+      ? new BuildingFires(viewer.scene, ctx.buildings, {
+          sim: () => sim,
+          rect: {
+            west: site.lon - dLon,
+            south: site.lat - dLat,
+            east: site.lon + dLon,
+            north: site.lat + dLat,
+          },
+          groundAt: (lon, lat) => groundAt((lon - site.lon) * metresPerLon, (lat - site.lat) * 110_540),
+          up: plume.up,
+        })
+      : undefined;
 
   const debris = new Debris(viewer.scene, {
     vent,
@@ -211,6 +233,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
         }
       }
       debris.tick(dt);
+      fires?.tick(dt);
       // Lightning strikes at random while the column is thick.
       if (main && ashLevel > 0.6 && dt > 0) {
         const perSecond = 0.3 + intensity * 0.35;
@@ -248,20 +271,28 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
 
       if (sim && layer) {
         const target = Math.max(0, elapsed - PHASES.lavaStart * duration);
+        // A time budget per frame rather than a step count, with longer steps
+        // when the model has fallen behind (slow computers, 4× speed), so it
+        // never drifts behind the clock. At the very end it catches up fully,
+        // so the aftermath always shows the flows crusted over.
+        const behind = target - lavaClock;
+        const stepS = f >= 1 ? LAVA_MAX_STEP_S : behind > 3 ? 0.3 : behind > 1 ? 0.2 : LAVA_STEP_S;
+        const stopAt = f >= 1 ? Infinity : performance.now() + LAVA_BUDGET_MS;
         let steps = 0;
-        while (lavaClock + LAVA_STEP_S <= target && steps < MAX_STEPS_PER_FRAME) {
+        while (lavaClock + stepS <= target + 1e-6 && performance.now() < stopAt) {
           const lf = (lavaClock + PHASES.lavaStart * duration) / duration;
           // Effusion eases off over the last fifth of the lava phase. After it
-          // stops, cooling speeds up (up to 25×) so the flows have crusted over
-          // into dark rock by the end of the time-lapse.
+          // stops, cooling speeds up (up to 80×: hours of cooling compressed
+          // into seconds) so even thick flows have crusted over into dark rock
+          // by the end of the time-lapse.
           const taper = Math.min(1, Math.max(0, (PHASES.lavaEnd - lf) / 0.12));
-          const cooling = lf < PHASES.lavaEnd ? 1 : 1 + 24 * Math.min(1, (lf - PHASES.lavaEnd) / (0.92 - PHASES.lavaEnd));
-          sim.step(LAVA_STEP_S, lf < PHASES.lavaEnd ? effusion * taper : 0, cooling);
-          lavaClock += LAVA_STEP_S;
+          const cooling = lf < PHASES.lavaEnd ? 1 : 1 + 79 * Math.min(1, (lf - PHASES.lavaEnd) / (0.92 - PHASES.lavaEnd));
+          sim.step(stepS, lf < PHASES.lavaEnd ? effusion * taper : 0, cooling);
+          lavaClock += stepS;
           steps++;
         }
         const now = performance.now();
-        if (steps > 0 && now - lastPaint > LAVA_REPAINT_MS) {
+        if (steps > 0 && (f >= 1 || now - lastPaint > LAVA_REPAINT_MS)) {
           layer.render();
           lastPaint = now;
         }
@@ -286,6 +317,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
       visible = show;
       plume.show = show;
       debris.show = show;
+      if (fires) fires.show = show;
       if (layer) layer.show = show;
       if (!show && baseLayer) baseLayer.brightness = baseBrightness;
     },
@@ -294,6 +326,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
       destroyed = true;
       plume.destroy();
       debris.destroy();
+      fires?.destroy();
       layer?.destroy();
       sound.stop();
       if (baseLayer && !baseLayer.isDestroyed()) baseLayer.brightness = baseBrightness;
@@ -311,6 +344,15 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
       { label: "Runout", value: `${sim.runoutKm().toFixed(1)} km`, note: sim.reachedEdge() ? "Reached the edge of the modelled area" : "Farthest lava from the vent" },
       { label: "Still molten", value: `${Math.round(sim.moltenShare() * 100)}%` },
     );
+    if (fires) {
+      list.push({
+        label: "Buildings hit",
+        value: `${fires.reached.toLocaleString()} reached · ${fires.destroyed.toLocaleString()} buried`,
+        note: "OpenStreetMap buildings in loaded map tiles; zoom in to load more",
+      });
+    } else if (!ctx.buildings) {
+      list.push({ label: "Buildings", value: "Not available", note: "Building data needs a Cesium ion token" });
+    }
     return list;
   }
 

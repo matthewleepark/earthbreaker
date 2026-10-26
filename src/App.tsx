@@ -327,7 +327,7 @@ export default function App() {
       lastRunRef.current = { vent: runVent, params: runParams, seed };
       const ground = await sampleGroundHeight(globe, runVent.lon, runVent.lat);
       const instance = await controller.trigger(
-        { viewer: globe.viewer, providerMode: globe.mode, sound, perf: globe.perf },
+        { viewer: globe.viewer, providerMode: globe.mode, sound, perf: globe.perf, buildings: globe.buildings },
         disaster,
         { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
         runParams,

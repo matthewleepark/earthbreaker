@@ -2,6 +2,7 @@ import type { Viewer } from "cesium";
 import type { ProviderMode } from "../globe/createGlobe";
 import type { PerformanceMonitor } from "../globe/performance";
 import type { SoundBoard } from "../audio/sound";
+import type { Buildings } from "../globe/buildings";
 
 /** Where a disaster happens. `heightM` is the ground height there, if known. */
 export interface Site {
@@ -45,6 +46,8 @@ export interface DisasterContext {
   sound: SoundBoard;
   /** Read `perf.effects` for how many particles the machine can afford right now. */
   perf: PerformanceMonitor;
+  /** OpenStreetMap buildings, when available, so disasters can damage them. */
+  buildings?: Buildings;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
 } from "cesium";
 import type { CameraView } from "../data/places";
 import { PerformanceMonitor } from "./performance";
+import { Buildings } from "./buildings";
 
 export type ProviderMode = "ion" | "fallback";
 
@@ -43,6 +44,8 @@ export interface Globe {
   photoreal?: Cesium3DTileset;
   /** Why photorealistic tiles are unavailable, when ion works but they don't. */
   photorealError?: string;
+  /** OpenStreetMap 3D buildings, when they loaded. */
+  buildings?: Buildings;
   quality: Quality;
   perf: PerformanceMonitor;
 }
@@ -118,12 +121,12 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
 
   let photoreal: Cesium3DTileset | undefined;
   let photorealError: string | undefined;
+  let buildings: Buildings | undefined;
   if (mode === "ion") {
-    try {
-      photoreal = await loadPhotoreal(viewer);
-    } catch (err) {
-      photorealError = describePhotorealError(err);
-    }
+    const [tiles, osm] = await Promise.allSettled([loadPhotoreal(viewer), Buildings.load(viewer)]);
+    if (tiles.status === "fulfilled") photoreal = tiles.value;
+    else photorealError = describePhotorealError(tiles.reason);
+    if (osm.status === "fulfilled") buildings = osm.value;
   }
   const globe: Globe = {
     viewer,
@@ -131,8 +134,9 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
     providerError,
     photoreal,
     photorealError,
+    buildings,
     quality: "terrain",
-    perf: new PerformanceMonitor(viewer, photoreal),
+    perf: new PerformanceMonitor(viewer, photoreal, buildings?.tileset),
   };
   if (photoreal) setQuality(globe, preferredQuality());
   return globe;
@@ -168,6 +172,7 @@ export function setQuality(globe: Globe, quality: Quality) {
   // The tiles include their own ground, so the globe underneath is hidden.
   // Terrain still loads in the background for height sampling.
   globe.viewer.scene.globe.show = !photoreal;
+  globe.buildings?.setPhotoreal(photoreal);
   globe.quality = photoreal ? "photoreal" : "terrain";
   globe.viewer.scene.requestRender();
   try {
