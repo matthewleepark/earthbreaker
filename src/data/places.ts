@@ -12,6 +12,8 @@ export interface Place {
   /** True for real volcanoes; Everest is not one, so eruptions there are fictional. */
   volcanic: boolean;
   view: CameraView;
+  /** A low, close view for the Close-up button. */
+  closeView: CameraView;
 }
 
 export interface CameraView {
@@ -33,8 +35,10 @@ export const PRESETS: Place[] = [
     elevationM: 8849,
     elevationSource: "Nepal–China joint survey, 2020",
     volcanic: false,
-    // From the south-west, looking up the Khumbu valley at the summit.
-    view: { range: 22000, heading: 20, pitch: -18 },
+    // From the south-west over the Khumbu Glacier, looking at the summit with
+    // Lhotse to its right: the classic aerial view of the south-west face.
+    view: { range: 16000, heading: 50, pitch: -12 },
+    closeView: { range: 6500, heading: 55, pitch: -9 },
   },
   {
     id: "rainier",
@@ -46,6 +50,7 @@ export const PRESETS: Place[] = [
     elevationSource: "USGS",
     volcanic: true,
     view: { range: 32000, heading: 340, pitch: -22 },
+    closeView: { range: 9000, heading: 340, pitch: -14 },
   },
   {
     id: "st-helens",
@@ -58,6 +63,7 @@ export const PRESETS: Place[] = [
     volcanic: true,
     // From the north, looking into the horseshoe crater left by 1980.
     view: { range: 16000, heading: 180, pitch: -24 },
+    closeView: { range: 5000, heading: 180, pitch: -20 },
   },
 ];
 
@@ -66,4 +72,9 @@ export function viewForExtent(spanDegrees: number): CameraView {
   const metres = spanDegrees * 111_000;
   const range = Math.min(Math.max(metres * 1.6, 4000), 2_500_000);
   return { range, heading: 0, pitch: range > 500_000 ? -90 : -35 };
+}
+
+/** A closer, lower version of a view for the Close-up button. */
+export function closeViewFor(view: CameraView): CameraView {
+  return { range: Math.max(1200, view.range / 4), heading: view.heading, pitch: view.pitch < -60 ? -35 : Math.max(view.pitch, -25) };
 }

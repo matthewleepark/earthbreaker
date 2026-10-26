@@ -63,7 +63,8 @@ export class LavaLayer {
         geometry: new RectangleGeometry({ rectangle, vertexFormat: EllipsoidSurfaceAppearance.VERTEX_FORMAT }),
       }),
       appearance: new EllipsoidSurfaceAppearance({ aboveGround: false, flat: true, material: this.material }),
-      classificationType: ClassificationType.TERRAIN,
+      // BOTH so the lava drapes over Google's 3D tiles as well as plain terrain.
+      classificationType: ClassificationType.BOTH,
     });
     scene.primitives.add(this.primitive);
   }

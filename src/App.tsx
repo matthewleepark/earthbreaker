@@ -14,12 +14,14 @@ import {
   removeMarker,
   sampleGroundHeight,
   setMarker,
+  setQuality,
   startOrbit,
   type Globe,
+  type Quality,
 } from "./globe/createGlobe";
-import { PRESETS, viewForExtent, type Place } from "./data/places";
+import { PRESETS, closeViewFor, viewForExtent, type CameraView, type Place } from "./data/places";
 import { matchVolcano } from "./data/volcanoes";
-import { searchPlaces, type SearchResult } from "./services/geocode";
+import { searchGoogle, searchOsm, type SearchResult } from "./services/geocode";
 import { DISASTERS } from "./disasters/registry";
 import { IDLE_STATE, SimulationController, type SimState } from "./disasters/controller";
 import { randomSeed } from "./disasters/random";
@@ -39,12 +41,16 @@ interface Selection {
   elevationM?: number;
   elevationSource?: string;
   volcanic?: boolean;
+  /** Height the camera aims at, and the two framings the view buttons fly to. */
+  aimHeightM: number;
+  view: CameraView;
+  closeView: CameraView;
 }
 
 type SearchState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "results"; results: SearchResult[] }
+  | { kind: "results"; results: SearchResult[]; attribution: string }
   | { kind: "error"; message: string };
 
 export default function App() {
@@ -66,7 +72,11 @@ export default function App() {
   const [search, setSearch] = useState<SearchState>({ kind: "idle" });
   const [panelOpen, setPanelOpen] = useState(!isPhone());
   const [helpOpen, setHelpOpen] = useState(false);
+  const [quality, setQualityState] = useState<Quality>("terrain");
+  const [photorealAvailable, setPhotorealAvailable] = useState(false);
+  const [activeView, setActiveView] = useState<"overview" | "close">("overview");
   const searchAbort = useRef<AbortController | null>(null);
+  const searchSeq = useRef(0);
 
   const [disasterId, setDisasterId] = useState(DISASTERS[0].id);
   const disaster = DISASTERS.find((d) => d.id === disasterId) ?? DISASTERS[0];
@@ -88,13 +98,26 @@ export default function App() {
       };
     }
     setGlobeState("ready");
+    setQualityState(globe.quality);
+    setPhotorealAvailable(!!globe.photoreal);
     if (globe.providerError) {
       setProviderNote(`${globe.providerError} Showing street-map imagery on flat terrain instead.`);
     } else if (globe.mode === "fallback") {
       setProviderNote(
         "No Cesium ion token, so terrain is flat and imagery is a street map. Add VITE_CESIUM_ION_TOKEN to .env.local for real elevation and satellite imagery (see README).",
       );
+    } else if (globe.photorealError) {
+      setProviderNote(`${globe.photorealError} Showing terrain with satellite imagery instead.`);
     }
+  }, []);
+
+  const toggleQuality = useCallback(() => {
+    const globe = globeRef.current;
+    if (!globe?.photoreal) return;
+    setQuality(globe, globe.quality === "photoreal" ? "terrain" : "photoreal");
+    setQualityState(globe.quality);
+    // Search results came from the other mode's provider, so clear them.
+    setSearch({ kind: "idle" });
   }, []);
 
   const handleError = useCallback((message: string) => {
@@ -117,15 +140,16 @@ export default function App() {
   }, [stopOrbit]);
 
   const goTo = useCallback(
-    (target: Selection, heightM: number, view: Place["view"]) => {
+    (target: Selection) => {
       const globe = globeRef.current;
       if (!globe) return;
       // Changing location ends the current disaster (and frees its GPU resources).
       resetSim();
       setPicking(false);
       setSelection(target);
+      setActiveView("overview");
       setFlying(true);
-      setMarker(globe.viewer, target.lon, target.lat, heightM, target.name);
+      setMarker(globe.viewer, target.lon, target.lat, target.aimHeightM, target.name);
       removeMarker(globe.viewer, VENT_MARKER);
       // The place itself is the default vent.
       setVent({
@@ -134,28 +158,41 @@ export default function App() {
         lon: target.lon,
         match: matchVolcano(target.lat, target.lon, target.volcanic === false),
       });
-      flyToPoint(globe.viewer, target.lon, target.lat, heightM, view, () => setFlying(false));
+      flyToPoint(globe.viewer, target.lon, target.lat, target.aimHeightM, target.view, () => setFlying(false));
     },
     [resetSim],
+  );
+
+  /** Re-frames the selected place: the wide overview or the low close-up. */
+  const showView = useCallback(
+    (which: "overview" | "close") => {
+      const globe = globeRef.current;
+      if (!globe || !selection) return;
+      stopOrbit();
+      setActiveView(which);
+      setFlying(true);
+      const view = which === "close" ? selection.closeView : selection.view;
+      flyToPoint(globe.viewer, selection.lon, selection.lat, selection.aimHeightM, view, () => setFlying(false));
+    },
+    [selection, stopOrbit],
   );
 
   const goToPreset = useCallback(
     (place: Place) => {
       setSearch({ kind: "idle" });
-      goTo(
-        {
-          name: place.name,
-          detail: place.region,
-          lat: place.lat,
-          lon: place.lon,
-          elevationM: place.elevationM,
-          elevationSource: place.elevationSource,
-          volcanic: place.volcanic,
-        },
+      goTo({
+        name: place.name,
+        detail: place.region,
+        lat: place.lat,
+        lon: place.lon,
+        elevationM: place.elevationM,
+        elevationSource: place.elevationSource,
+        volcanic: place.volcanic,
         // On the flat fallback globe the summit is at sea level, so aim there.
-        globeRef.current?.mode === "ion" ? (place.elevationM ?? 0) : 0,
-        place.view,
-      );
+        aimHeightM: globeRef.current?.mode === "ion" ? (place.elevationM ?? 0) : 0,
+        view: place.view,
+        closeView: place.closeView,
+      });
     },
     [goTo],
   );
@@ -166,18 +203,18 @@ export default function App() {
       if (!globe) return;
       setSearch({ kind: "idle" });
       const ground = await sampleGroundHeight(globe, result.lon, result.lat);
-      goTo(
-        {
-          name: result.name,
-          detail: result.detail,
-          lat: result.lat,
-          lon: result.lon,
-          elevationM: ground,
-          elevationSource: ground === undefined ? undefined : "Cesium World Terrain",
-        },
-        ground ?? 0,
-        viewForExtent(result.spanDegrees),
-      );
+      const view = viewForExtent(result.spanDegrees);
+      goTo({
+        name: result.name,
+        detail: result.detail,
+        lat: result.lat,
+        lon: result.lon,
+        elevationM: ground,
+        elevationSource: ground === undefined ? undefined : "Cesium World Terrain",
+        aimHeightM: ground ?? 0,
+        view,
+        closeView: closeViewFor(view),
+      });
     },
     [goTo],
   );
@@ -185,18 +222,25 @@ export default function App() {
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
     const q = query.trim();
-    if (!q) return;
+    const globe = globeRef.current;
+    if (!q || !globe) return;
     searchAbort.current?.abort();
     const controller = new AbortController();
     searchAbort.current = controller;
+    const seq = ++searchSeq.current;
     setSearch({ kind: "loading" });
     try {
-      const results = await searchPlaces(q, controller.signal);
+      // Google's tiles may only be used with Google's geocoder.
+      const { results, attribution } =
+        globe.quality === "photoreal" ? await searchGoogle(globe.viewer.scene, q) : await searchOsm(q, controller.signal);
+      if (seq !== searchSeq.current) return;
       setSearch(
-        results.length ? { kind: "results", results } : { kind: "error", message: `No places found for “${q}”.` },
+        results.length
+          ? { kind: "results", results, attribution }
+          : { kind: "error", message: `No places found for “${q}”.` },
       );
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || seq !== searchSeq.current) return;
       setSearch({ kind: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -331,6 +375,7 @@ export default function App() {
                   </button>
                 </li>
               ))}
+              <li className="attribution">{search.attribution}</li>
             </ul>
           )}
           {search.kind === "error" && <p className="results note">{search.message}</p>}
@@ -348,6 +393,20 @@ export default function App() {
               {p.name}
             </button>
           ))}
+          <button
+            type="button"
+            className={quality === "photoreal" ? "chip active" : "chip"}
+            onClick={toggleQuality}
+            disabled={!ready || !photorealAvailable}
+            aria-pressed={quality === "photoreal"}
+            title={
+              photorealAvailable
+                ? "Switch between photorealistic 3D (Google) and terrain with satellite imagery"
+                : "Photorealistic 3D needs a working Cesium ion token"
+            }
+          >
+            Photoreal 3D
+          </button>
           <button type="button" className="chip icon" onClick={() => setHelpOpen(true)} aria-label="Controls help">
             ?
           </button>
@@ -403,6 +462,22 @@ export default function App() {
                   <div className="place">
                     <h2>{selection.name}</h2>
                     {selection.detail && <p>{selection.detail}</p>}
+                    <div className="view-buttons" role="group" aria-label="Camera view">
+                      <button
+                        type="button"
+                        className={activeView === "overview" ? "chip active" : "chip"}
+                        onClick={() => showView("overview")}
+                      >
+                        Overview
+                      </button>
+                      <button
+                        type="button"
+                        className={activeView === "close" ? "chip active" : "chip"}
+                        onClick={() => showView("close")}
+                      >
+                        Close-up
+                      </button>
+                    </div>
                   </div>
                   <Row label="Coordinates" value={formatLatLon(selection.lat, selection.lon)} />
                   <Row

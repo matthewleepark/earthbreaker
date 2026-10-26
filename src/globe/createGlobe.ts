@@ -18,17 +18,31 @@ import {
   Math as CesiumMath,
   Matrix4,
   Viewer,
+  createGooglePhotorealistic3DTileset,
+  type Cesium3DTileset,
   type TerrainProvider,
 } from "cesium";
 import type { CameraView } from "../data/places";
 
 export type ProviderMode = "ion" | "fallback";
 
+/**
+ * "photoreal": Google Photorealistic 3D Tiles (a textured 3D mesh of the
+ * world, like Google Earth). "terrain": Cesium World Terrain draped with
+ * satellite imagery. Photoreal looks far better up close; terrain is lighter.
+ */
+export type Quality = "photoreal" | "terrain";
+
 export interface Globe {
   viewer: Viewer;
   mode: ProviderMode;
   /** Set when ion was configured but terrain or imagery failed to load. */
   providerError?: string;
+  /** Google Photorealistic 3D Tiles, when they loaded. */
+  photoreal?: Cesium3DTileset;
+  /** Why photorealistic tiles are unavailable, when ion works but they don't. */
+  photorealError?: string;
+  quality: Quality;
 }
 
 /**
@@ -77,21 +91,93 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
   scene.globe.enableLighting = true;
   scene.globe.depthTestAgainstTerrain = true;
   scene.globe.showGroundAtmosphere = true;
+  // Sharper terrain and imagery than Cesium's default of 2 (lower = more detail, more tiles).
+  scene.globe.maximumScreenSpaceError = 1.5;
   scene.fog.enabled = true;
   scene.backgroundColor = Color.BLACK;
   if (scene.skyAtmosphere) scene.skyAtmosphere.show = true;
+  scene.postProcessStages.fxaa.enabled = true;
+  // Render at the screen's real pixel density (crisper on high-DPI screens),
+  // but not beyond 2x, where the cost outweighs what the eye can see.
+  if (window.devicePixelRatio <= 2) viewer.useBrowserRecommendedResolution = false;
   // The sun stays where we put it; it only moves when we fly somewhere new.
   viewer.clock.shouldAnimate = false;
   setLocalMorning(viewer, -30);
 
-  // Keep the camera above the ground and stop it wandering too far into space.
+  // Let the camera get right down to the ground. Collision detection (on by
+  // default) stops it going below the terrain or into the 3D tiles.
   const controller = scene.screenSpaceCameraController;
-  controller.minimumZoomDistance = 150;
+  controller.minimumZoomDistance = 15;
   controller.maximumZoomDistance = 40_000_000;
 
   viewer.camera.setView({ destination: Cartesian3.fromDegrees(-30, 25, 22_000_000) });
 
-  return { viewer, mode, providerError };
+  const globe: Globe = { viewer, mode, providerError, quality: "terrain" };
+  if (mode === "ion") {
+    try {
+      globe.photoreal = await loadPhotoreal(viewer);
+      setQuality(globe, preferredQuality());
+    } catch (err) {
+      globe.photorealError = describePhotorealError(err);
+    }
+  }
+  return globe;
+}
+
+/**
+ * Google Photorealistic 3D Tiles through Cesium ion (asset 2275207). With no
+ * Google key configured, Cesium requests them with the ion token. Google's
+ * terms only allow them alongside Google's geocoder, which is why search
+ * switches to the ion Google geocoder in this mode (services/geocode.ts).
+ */
+async function loadPhotoreal(viewer: Viewer): Promise<Cesium3DTileset> {
+  const tileset = await createGooglePhotorealistic3DTileset(
+    { onlyUsingWithGoogleGeocoder: true },
+    {
+      // Default is 16; lower loads finer tiles sooner for sharper close-ups.
+      maximumScreenSpaceError: 8,
+      // The camera bumps into mountains instead of passing through them.
+      enableCollision: true,
+      // Google requires its attribution on screen, not hidden behind a button.
+      showCreditsOnScreen: true,
+    },
+  );
+  tileset.show = false;
+  viewer.scene.primitives.add(tileset);
+  return tileset;
+}
+
+/** Switches between photorealistic tiles and terrain + imagery. */
+export function setQuality(globe: Globe, quality: Quality) {
+  const photoreal = quality === "photoreal" && !!globe.photoreal;
+  if (globe.photoreal) globe.photoreal.show = photoreal;
+  // The tiles include their own ground, so the globe underneath is hidden.
+  // Terrain still loads in the background for height sampling.
+  globe.viewer.scene.globe.show = !photoreal;
+  globe.quality = photoreal ? "photoreal" : "terrain";
+  try {
+    localStorage.setItem(QUALITY_KEY, globe.quality);
+  } catch {
+    // Storage blocked (private mode): the choice just isn't remembered.
+  }
+}
+
+const QUALITY_KEY = "earthbreaker.quality";
+
+function preferredQuality(): Quality {
+  try {
+    return localStorage.getItem(QUALITY_KEY) === "terrain" ? "terrain" : "photoreal";
+  } catch {
+    return "photoreal";
+  }
+}
+
+function describePhotorealError(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+  if (/401|403|404|not found|unauthori[sz]ed|forbidden/i.test(text)) {
+    return "Your Cesium ion token couldn't open Google Photorealistic 3D Tiles. If your ion account doesn't list them under My Assets, add them from the Asset Depot (search “Google Photorealistic”).";
+  }
+  return `Photorealistic 3D tiles could not load (${text}).`;
 }
 
 /** Flies the camera so it looks at a point from the given heading, tilt and distance. */
@@ -160,8 +246,16 @@ export function removeMarker(viewer: Viewer, id: string) {
 
 /** The ground point under a screen position, or undefined if it's sky. */
 export function pickGround(viewer: Viewer, x: number, y: number): { lon: number; lat: number; heightM: number } | undefined {
-  const ray = viewer.camera.getPickRay(new Cartesian2(x, y));
-  const hit = ray && viewer.scene.globe.pick(ray, viewer.scene);
+  const { scene } = viewer;
+  const screen = new Cartesian2(x, y);
+  let hit: Cartesian3 | undefined;
+  if (!scene.globe.show && scene.pickPositionSupported) {
+    // Photoreal mode: the globe is hidden, so read the 3D tiles' depth instead.
+    hit = scene.pickPosition(screen);
+  } else {
+    const ray = viewer.camera.getPickRay(screen);
+    hit = ray && scene.globe.pick(ray, scene);
+  }
   if (!hit) return undefined;
   const c = Cartographic.fromCartesian(hit);
   return { lon: CesiumMath.toDegrees(c.longitude), lat: CesiumMath.toDegrees(c.latitude), heightM: c.height };

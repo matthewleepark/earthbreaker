@@ -83,6 +83,8 @@ button, input { font: inherit; color: inherit; }
 .results button:hover, .results button:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
 .results span { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .results.note { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+.results .attribution { padding: 6px 10px 2px; color: var(--muted); font-size: 11px; text-align: right; }
+.view-buttons { display: flex; gap: 6px; margin-top: 10px; }
 
 .presets {
   display: flex; gap: 6px; margin-left: auto; padding: 5px;

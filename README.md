@@ -30,6 +30,16 @@ visualisations, **not** scientific forecasts.
 - Every eruption is labelled: **real volcano** (from a built-in list), **fictional** (e.g. Everest),
   or **sandbox** (anywhere else)
 
+**Photorealistic 3D (done)**
+
+- **Photoreal 3D** (default when available): Google Photorealistic 3D Tiles, a textured 3D mesh of the
+  whole world like Google Earth, streamed through your Cesium ion token. The top-bar button switches
+  back to terrain + satellite imagery, and the choice is remembered in this browser.
+- **Overview / Close-up** buttons in the details panel. The camera can get down to 15 m from the
+  ground, and collision stops it from passing into mountains.
+- Sharper rendering in both modes: finer terrain tiles, full pixel density on high-DPI screens, and
+  anti-aliasing.
+
 Not started yet: buildings and other disasters. See [Roadmap](#roadmap).
 
 ## Setup
@@ -156,7 +166,13 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 
 - **Cesium World Terrain** and **Bing Maps imagery** via Cesium ion: subject to the
   [Cesium ion terms](https://cesium.com/legal/terms-of-service/). Credits show in the bottom-left corner.
-- **OpenStreetMap** tiles and **Nominatim** search: © OpenStreetMap contributors, under the
+- **Google Photorealistic 3D Tiles** via Cesium ion (asset 2275207), under
+  [Google's Map Tiles API policies](https://developers.google.com/maps/documentation/tile/policies).
+  Google requires that these tiles are only used with Google's geocoder, so in photoreal mode search
+  goes through the Cesium ion **Google** geocoder, not OpenStreetMap. Google's attribution stays on
+  screen (bottom left) and under search results. Streaming counts toward your Cesium ion usage
+  allowance.
+- **OpenStreetMap** tiles and **Nominatim** search (terrain and no-token modes): © OpenStreetMap contributors, under the
   [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) and the
   [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/) (no more than
   one search per second; heavy use is not allowed). Search only runs when you press Search, never on
@@ -171,6 +187,10 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 - **Lava on real terrain hasn't been checked in a browser yet.** The eruption was tested locally
   without a token (flat ground), and the lava model was tested on synthetic slopes and valleys
   (`npm test`).
+- In photoreal mode, lava heights still come from Cesium World Terrain, which is smoother than
+  Google's mesh. The lava texture itself drapes on Google's mesh, but small gullies the terrain model
+  misses won't steer the flow.
+- Photorealistic tiles are much heavier than terrain. On a slow connection or GPU, switch to terrain.
 - Without a token the ground is flat, so lava pools in a disc instead of running down valleys.
 - The volcano list is short (15 well-known volcanoes). A real volcano that isn't on it, like
   Mount Adams, is labelled "sandbox".
