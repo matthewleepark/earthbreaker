@@ -323,6 +323,34 @@ export async function sampleGroundHeight(globe: Globe, lon: number, lat: number)
 }
 
 /**
+ * The highest ground within `radiusM` of a point, from a 9 × 9 grid of terrain
+ * samples. Used to put a volcano's vent on its actual summit when the listed
+ * coordinates are slightly off. Undefined on the flat fallback globe.
+ */
+export async function findSummit(
+  globe: Globe,
+  lon: number,
+  lat: number,
+  radiusM = 1500,
+): Promise<{ lon: number; lat: number; heightM: number } | undefined> {
+  if (globe.mode !== "ion") return undefined;
+  const dLat = radiusM / 110_540;
+  const dLon = radiusM / (111_320 * Math.cos(CesiumMath.toRadians(lat)));
+  const points: Cartographic[] = [];
+  for (let i = -4; i <= 4; i++) {
+    for (let j = -4; j <= 4; j++) points.push(Cartographic.fromDegrees(lon + (j / 4) * dLon, lat + (i / 4) * dLat));
+  }
+  try {
+    const sampled = await sampleTerrainMostDetailed(globe.viewer.terrainProvider, points);
+    let best: Cartographic | undefined;
+    for (const p of sampled) if (Number.isFinite(p.height) && (!best || p.height > best.height)) best = p;
+    return best && { lon: CesiumMath.toDegrees(best.longitude), lat: CesiumMath.toDegrees(best.latitude), heightM: best.height };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Globe lighting follows the real sun, so a target on the night side would
  * arrive dark. Put the sun at about 10:30 local solar time over `lon` on a
  * fixed early-autumn date, which gives long, readable shadows on mountains.

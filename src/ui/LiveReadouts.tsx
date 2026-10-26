@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { Math as CesiumMath } from "cesium";
 import type { Globe } from "../globe/createGlobe";
+import { POWER_LABELS, type PowerMode } from "../globe/performance";
 import { formatLatLon, formatMetres } from "./format";
 
 /** Calls `read` at most every `ms`, and only re-renders when the text changes. */
@@ -44,22 +45,47 @@ export function CameraRow({ globe }: { globe: Globe }) {
   );
 }
 
-/** "Rendering 58 fps · High": what the automatic quality control is doing. */
+const POWER_HINTS: Record<PowerMode, string> = {
+  smooth: "Up to 60 fps. Best on desktops and gaming laptops.",
+  balanced: "Capped at 30 fps: about half the work, so laptops run cooler and quieter.",
+  saver: "30 fps and lighter effects, for slow computers or battery.",
+};
+
+/** Frame rate, quality level and the power mode buttons. */
 export function PerformanceRow({ globe }: { globe: Globe }) {
+  const perf = globe.perf;
+  // Re-render straight away when the mode changes, not on the next poll.
+  const [, bump] = useState(0);
+  useEffect(() => perf.subscribe(() => bump((n) => n + 1)), [perf]);
   const text = usePolled(
-    () => {
-      const { fps, levelName } = globe.perf;
-      return fps === undefined ? `${levelName} quality` : `${Math.round(fps)} fps · ${levelName} quality`;
-    },
+    () => (perf.fps === undefined ? `${perf.levelName} quality` : `${Math.round(perf.fps)} fps · ${perf.levelName} quality`),
     1000,
-    [globe],
+    [perf],
   );
   return (
     <div className="row">
       <dt>Rendering</dt>
       <dd>
         {text}
-        <small>Adjusts itself to keep the frame rate up</small>
+        <div className="power" role="radiogroup" aria-label="Power mode">
+          {(Object.keys(POWER_LABELS) as PowerMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={perf.mode === mode}
+              className={perf.mode === mode ? "active" : ""}
+              onClick={() => perf.setMode(mode)}
+              title={POWER_HINTS[mode]}
+            >
+              {POWER_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+        <small>
+          {POWER_HINTS[perf.mode]}
+          {perf.automatic && " Picked automatically for this computer."}
+        </small>
       </dd>
     </div>
   );

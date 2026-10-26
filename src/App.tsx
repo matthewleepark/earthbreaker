@@ -14,6 +14,7 @@ import {
   flyToPoint,
   pickGround,
   removeMarker,
+  findSummit,
   sampleGroundHeight,
   setMarker,
   setQuality,
@@ -22,7 +23,8 @@ import {
   type Quality,
 } from "./globe/createGlobe";
 import { PRESETS, closeViewFor, viewForExtent, type CameraView, type Place } from "./data/places";
-import { matchVolcano } from "./data/volcanoes";
+import { VOLCANOES, matchVolcano, volcanoView, type Volcano } from "./data/volcanoes";
+import { VolcanoMenu } from "./ui/VolcanoMenu";
 import { searchGoogle, searchOsm, type SearchResult } from "./services/geocode";
 import { DISASTERS } from "./disasters/registry";
 import { IDLE_STATE, SimulationController, type SimState } from "./disasters/controller";
@@ -39,6 +41,8 @@ let appRenders = 0;
 
 const ION_TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim() || undefined;
 const VENT_MARKER = "vent";
+/** Quick-access chips; every other volcano is in the Volcanoes menu. */
+const TOP_BAR_PRESETS = ["everest", "rainier"];
 
 interface Selection {
   name: string;
@@ -217,6 +221,33 @@ export default function App() {
     [goTo],
   );
 
+  /** Flies to a volcano from the menu, with the vent moved onto its summit where it has one. */
+  const goToVolcano = useCallback(
+    async (volcano: Volcano) => {
+      const globe = globeRef.current;
+      if (!globe) return;
+      setSearch({ kind: "idle" });
+      const summit = volcano.snap ? await findSummit(globe, volcano.lon, volcano.lat) : undefined;
+      const lat = summit?.lat ?? volcano.lat;
+      const lon = summit?.lon ?? volcano.lon;
+      const ground = summit?.heightM ?? (await sampleGroundHeight(globe, lon, lat));
+      const view = volcanoView(volcano);
+      goTo({
+        name: volcano.name,
+        detail: `${volcano.country} · ${volcano.note}`,
+        lat,
+        lon,
+        elevationM: ground,
+        elevationSource: ground === undefined ? undefined : summit ? "Highest point nearby, Cesium World Terrain" : "Cesium World Terrain",
+        volcanic: true,
+        aimHeightM: ground ?? 0,
+        view,
+        closeView: closeViewFor(view),
+      });
+    },
+    [goTo],
+  );
+
   const goToResult = useCallback(
     async (result: SearchResult) => {
       const globe = globeRef.current;
@@ -356,8 +387,10 @@ export default function App() {
     if (globeState !== "ready") return;
     const id = new URLSearchParams(window.location.search).get("place");
     const preset = PRESETS.find((p) => p.id === id);
+    const volcano = VOLCANOES.find((v) => v.id === id);
     if (preset) goToPreset(preset);
-  }, [globeState, goToPreset]);
+    else if (volcano) void goToVolcano(volcano);
+  }, [globeState, goToPreset, goToVolcano]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -420,7 +453,7 @@ export default function App() {
         </div>
 
         <nav className="presets" aria-label="Featured places">
-          {PRESETS.map((p) => (
+          {PRESETS.filter((p) => TOP_BAR_PRESETS.includes(p.id)).map((p) => (
             <button
               key={p.id}
               type="button"
@@ -431,6 +464,7 @@ export default function App() {
               {p.name}
             </button>
           ))}
+          <VolcanoMenu disabled={!ready} onPick={goToVolcano} />
           <button
             type="button"
             className={quality === "photoreal" ? "chip active" : "chip"}

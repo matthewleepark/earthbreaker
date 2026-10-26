@@ -129,6 +129,7 @@ export class SimulationController {
     this.instance?.destroy();
     this.instance = undefined;
     this.sound.stop();
+    this.sound.idle();
     const clock = this.viewer.clock;
     clock.shouldAnimate = false;
     if (this.timeBefore) clock.currentTime = this.timeBefore;
@@ -163,6 +164,7 @@ export class SimulationController {
       clock.currentTime = JulianDate.addSeconds(this.startTime, instance.duration, new JulianDate());
       this.removeTick?.();
       this.removeTick = undefined;
+      this.sound.idle();
     }
 
     // React only needs about ten updates a second, but never miss a boom.

@@ -93,6 +93,13 @@ button, input { font: inherit; color: inherit; }
 .results.note { padding: 12px 14px; color: var(--muted); font-size: 14px; }
 .results .attribution { padding: 6px 10px 2px; color: var(--muted); font-size: 11px; text-align: right; }
 .view-buttons { display: flex; gap: 6px; margin-top: 10px; }
+.power { display: inline-flex; margin-top: 6px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.power button {
+  height: 26px; padding: 0 9px; border: 0; background: transparent; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.power button + button { border-left: 1px solid var(--line); }
+.power button.active { background: rgba(255, 122, 61, 0.18); color: var(--text); }
 
 .presets {
   display: flex; gap: 6px; margin-left: auto; padding: 5px;
@@ -108,6 +115,33 @@ button, input { font: inherit; color: inherit; }
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip.active { border-color: var(--accent); background: rgba(255, 122, 61, 0.14); }
 .chip.icon { width: 32px; padding: 0; }
+
+/* ---------- Volcanoes menu ---------- */
+.volcano-menu { position: relative; }
+.volcano-list {
+  position: absolute; top: 40px; right: 0; z-index: 9;
+  width: min(380px, calc(100vw - 28px));
+  padding: 8px;
+  /* Fully opaque: a dropdown shouldn't show the panels underneath through it. */
+  background: #0c0f15; border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+}
+.volcano-list input {
+  width: 100%; height: 34px; padding: 0 10px; margin-bottom: 6px;
+  border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.05); outline: none;
+}
+.volcano-list input:focus { border-color: var(--line-strong); }
+.volcano-scroll { max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; contain: layout paint; }
+.volcano-scroll h3 {
+  margin: 10px 6px 4px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent);
+}
+.volcano-scroll button {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer;
+}
+.volcano-scroll button:hover, .volcano-scroll button:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
+.volcano-scroll strong { font-size: 13.5px; }
+.volcano-scroll span { color: var(--muted); font-size: 12px; line-height: 1.35; }
 
 /* ---------- Banners and overlays ---------- */
 /* Banners sit to the right of the disaster panel. */
@@ -274,6 +308,8 @@ button, input { font: inherit; color: inherit; }
   /* The top bar wraps to three rows here, so banners go below it and both
      panels open from the bottom corners, above the sim bar when it's showing. */
   .banner { top: 172px; left: 14px; width: calc(100% - 28px); }
+  /* The preset row scrolls sideways here, which would clip a dropdown inside it. */
+  .volcano-list { position: fixed; top: 128px; left: 14px; right: 14px; width: auto; }
   /* bottom: 40px keeps Cesium's credit line visible underneath. */
   .disaster-panel, .panel { top: auto; bottom: 40px; z-index: 6; max-height: 55%; }
   .disaster-panel:not(.collapsed), .panel:not(.collapsed) { left: 14px; right: 14px; width: auto; }

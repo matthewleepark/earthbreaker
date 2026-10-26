@@ -40,6 +40,13 @@ visualisations, **not** scientific forecasts.
 - Simulation numbers in the details panel: lava-covered area, runout, share still molten
 - Every eruption is labelled: **real volcano** (from a built-in list), **fictional** (e.g. Everest),
   or **sandbox** (anywhere else)
+- **Volcanoes menu:** 31 famous volcanoes grouped by region, filterable, each with a line on why it's
+  famous. Examples: Vesuvius, Etna, Stromboli, Fuji, Kīlauea, Mauna Loa, Krakatau, Tambora,
+  Pinatubo, Eyjafjallajökull, Kilimanjaro, Nyiragongo, Popocatépetl, Cotopaxi, Erebus.
+  - For peaked volcanoes, the vent snaps to the highest terrain within 1.5 km, so the eruption
+    starts at the summit even if the listed coordinates are slightly off.
+  - Calderas and lava lakes keep their listed point.
+  - Every volcano also works as a link, e.g. `?place=fuji` or `?place=vesuvius`.
 
 **Photorealistic 3D (done)**
 
@@ -127,6 +134,16 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
 
 - **Render on demand.** Cesium only draws a frame when something changes: the camera moves, tiles
   load, or a disaster's clock runs. A still view costs almost nothing.
+- **Power modes** (details panel → Rendering):
+  - **Smooth:** up to 60 fps.
+  - **Balanced:** capped at 30 fps, about half the GPU work, so laptops stay cooler and quieter.
+  - **Saver:** 30 fps with lower resolution and fewer particles.
+
+  The mode is picked automatically on first visit: Balanced when the computer looks low-powered
+  (integrated or software graphics, 4 or fewer CPU threads, 4 GB or less of memory) or runs on
+  battery, otherwise Smooth. Choosing one yourself is remembered.
+- The audio engine suspends itself a few seconds after an eruption ends, so it doesn't use CPU in the
+  background.
 - **Automatic quality** (`globe/performance.ts`). While the scene is animating, the frame rate is
   measured every 1.5 s. Below about 28 fps it steps down a level, and above about 52 fps it steps
   back up. Each level lowers render resolution (down to 60%), map tile detail, and the number of
@@ -211,8 +228,9 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
   every keystroke.
 - Preset elevations: Everest 8,849 m (Nepal–China joint survey, 2020); Rainier 4,392 m (USGS);
   St. Helens 2,549 m (USGS).
-- The volcano list (`data/volcanoes.ts`) uses approximate summit coordinates, good to about a
-  kilometre. It's only used for the real/fictional label.
+- The volcano list (`data/volcanoes.ts`) uses approximate summit or crater coordinates, good to about
+  a kilometre. Elevations for these come from the terrain model on arrival, not from a published
+  figure.
 
 ## Known limitations
 
@@ -224,8 +242,10 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
   misses won't steer the flow.
 - Photorealistic tiles are much heavier than terrain. On a slow connection or GPU, switch to terrain.
 - Without a token the ground is flat, so lava pools in a disc instead of running down valleys.
-- The volcano list is short (15 well-known volcanoes). A real volcano that isn't on it, like
-  Mount Adams, is labelled "sandbox".
+- The volcano list has 31 famous volcanoes, not all of the world's ~1,300 active ones. A real
+  volcano that isn't on it, like Mount Adams, is labelled "sandbox".
+- The automatic power mode is a guess from what the browser reveals. Browsers hide some hardware
+  details, so if it guesses wrong, pick the mode yourself.
 - Lava is modelled only inside a square around the vent (about 7–20 km across, depending on the
   lava setting). The details panel says when a flow reaches the edge.
 - The sun is fixed at about 10:30 local time at each destination, so terrain is always lit.

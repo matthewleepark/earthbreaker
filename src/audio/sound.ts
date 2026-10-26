@@ -14,6 +14,7 @@ export class SoundBoard {
   private white?: AudioBuffer;
   private readonly layers = new Map<Layer, { gain: GainNode; source: AudioBufferSourceNode }>();
   private mutedFlag: boolean;
+  private idleTimer = 0;
 
   constructor() {
     let stored = false;
@@ -44,7 +45,7 @@ export class SoundBoard {
       this.brown = noiseBuffer(ctx, true);
       this.ctx = ctx;
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    this.resume();
   }
 
   setMuted(muted: boolean) {
@@ -158,11 +159,27 @@ export class SoundBoard {
   }
 
   pause() {
+    this.cancelIdle();
     if (this.ctx?.state === "running") void this.ctx.suspend();
   }
 
   resume() {
+    this.cancelIdle();
     if (this.ctx?.state === "suspended") void this.ctx.resume();
+  }
+
+  /**
+   * Nothing is playing: suspend the audio engine once any last sounds have
+   * finished, so it stops using CPU in the background.
+   */
+  idle() {
+    this.cancelIdle();
+    this.idleTimer = window.setTimeout(() => this.pause(), 6000);
+  }
+
+  private cancelIdle() {
+    if (this.idleTimer) window.clearTimeout(this.idleTimer);
+    this.idleTimer = 0;
   }
 
   /** Silences and removes the continuous layers. One-shot sounds finish on their own. */
