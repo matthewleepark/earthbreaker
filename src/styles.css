@@ -26,7 +26,7 @@ button, input { font: inherit; color: inherit; }
 .globe .cesium-widget-credits { font-size: 11px; opacity: 0.8; }
 
 /* ---------- Glass surfaces ---------- */
-.topbar > :not(.search), .search form, .panel, .banner, .loading-pill, .results, .help {
+.topbar > :not(.search), .search form, .panel, .banner, .loading-pill, .results, .help, .disaster-panel, .sim-bar {
   background: var(--glass);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
@@ -100,10 +100,11 @@ button, input { font: inherit; color: inherit; }
 .chip.icon { width: 32px; padding: 0; }
 
 /* ---------- Banners and overlays ---------- */
+/* Banners sit to the right of the disaster panel. */
 .banner {
-  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 4;
+  position: absolute; top: 70px; left: 330px; z-index: 4;
   display: flex; align-items: flex-start; gap: 12px;
-  width: min(680px, calc(100% - 28px));
+  width: min(680px, calc(100% - 344px));
   padding: 10px 12px 10px 16px; font-size: 13.5px; line-height: 1.45;
 }
 .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); }
@@ -118,17 +119,94 @@ button, input { font: inherit; color: inherit; }
 .overlay.error h2 { margin: 0; font-size: 20px; }
 .overlay.error p { margin: 0; max-width: 520px; color: var(--muted); line-height: 1.5; }
 
+.banner.sim-error { top: 130px; }
+
 .loading-pill {
-  position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); z-index: 4;
+  position: absolute; top: 66px; right: 14px; z-index: 4;
   padding: 7px 14px; font-size: 12.5px; color: var(--muted);
 }
 
-/* ---------- Details panel ---------- */
+/* ---------- Details panel (right) ---------- */
 .panel {
-  /* Sits above Cesium's credit line, which must stay visible for data attribution. */
-  position: absolute; left: 14px; bottom: 44px; z-index: 4;
-  width: 300px; padding: 12px 14px 14px;
+  position: absolute; right: 14px; bottom: 14px; z-index: 4;
+  width: 300px; max-height: calc(100% - 130px); overflow-y: auto;
+  padding: 12px 14px 14px;
 }
+.sim-details { margin-top: 14px; }
+.sim-details h3 {
+  margin: 0; padding-top: 10px; border-top: 1px solid var(--line-strong);
+  font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+}
+
+/* ---------- Disaster panel (left) ---------- */
+.disaster-panel {
+  position: absolute; left: 14px; top: 70px; z-index: 4;
+  width: 300px; max-height: calc(100% - 120px); overflow-y: auto;
+  padding: 12px 14px 14px;
+}
+.disaster-panel.collapsed { width: auto; padding: 6px; }
+.disaster-panel.collapsed .panel-toggle { margin: 0; color: var(--text); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; }
+.panel-head h2 { margin: 0; font-size: 15px; letter-spacing: 0.04em; }
+.panel-head .panel-toggle { margin: 0; }
+
+.disaster-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.disaster {
+  width: 100%; min-height: 40px; padding: 6px 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.04);
+  text-align: left; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.disaster:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.08); }
+.disaster.active { border-color: var(--accent); background: rgba(255, 122, 61, 0.14); }
+.disaster:disabled { color: var(--muted); cursor: default; opacity: 0.6; }
+.disaster small { font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.disaster-desc { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+
+.vent { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.vent-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vent-row strong { display: block; font-size: 14px; margin-top: 2px; }
+.eyebrow { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.realism { margin: 8px 0 0; padding: 7px 9px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.realism.real { border: 1px solid rgba(120, 200, 255, 0.3); background: rgba(40, 90, 130, 0.25); color: #cfe8ff; }
+.realism.fictional { border: 1px solid var(--warn-line); background: rgba(90, 60, 15, 0.35); color: #ffd9a8; }
+.fine { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+
+.params { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+.param { display: block; margin-top: 10px; }
+.param-label { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; }
+.param-label output { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
+.param input[type="range"] { width: 100%; margin: 6px 0 0; accent-color: var(--accent); }
+.param small { display: block; color: var(--muted); font-size: 11px; }
+
+.trigger {
+  width: 100%; margin-top: 14px; height: 42px;
+  border: 0; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(180deg, #ff8a4c, #e5531c); color: #fff; font-weight: 700; letter-spacing: 0.02em;
+  box-shadow: 0 6px 20px -8px rgba(255, 106, 40, 0.8);
+}
+.trigger:hover:not(:disabled) { filter: brightness(1.08); }
+.trigger:disabled { background: rgba(255, 255, 255, 0.08); color: var(--muted); box-shadow: none; cursor: default; }
+
+/* ---------- Simulation bar (bottom centre) ---------- */
+.sim-bar {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 5;
+  width: min(560px, calc(100% - 660px)); min-width: 420px;
+  padding: 10px 14px 10px;
+}
+.sim-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segmented button {
+  height: 30px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button.active { background: rgba(255, 122, 61, 0.18); color: var(--text); }
+.timeline { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12.5px; }
+.timeline .phase { min-width: 104px; font-weight: 700; }
+.timeline .time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.track { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.track .fill { height: 100%; background: linear-gradient(90deg, #ffb340, var(--accent)); transition: width 0.1s linear; }
 .panel.collapsed { width: auto; padding: 6px; }
 .panel-toggle {
   display: block; margin-left: auto;
@@ -156,11 +234,24 @@ button, input { font: inherit; color: inherit; }
 .help kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 12px; background: rgba(255, 255, 255, 0.05); }
 .help .fine { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 0 0 14px; }
 
-/* ---------- Narrow screens ---------- */
+/* ---------- Narrower screens ---------- */
+@media (max-width: 1180px) {
+  /* No room between the side panels: the sim bar spans the bottom and the details panel moves up. */
+  .sim-bar { left: 14px; right: 14px; bottom: 40px; transform: none; width: auto; min-width: 0; }
+  .panel { bottom: 176px; max-height: calc(100% - 296px); }
+  .app.sim-active .disaster-panel { max-height: calc(100% - 256px); }
+}
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; }
   .search { flex: 1 1 100%; order: 3; }
-  .presets { margin-left: 0; }
-  .banner { top: 128px; }
-  .panel { width: calc(100% - 28px); }
+  .presets { margin-left: 0; overflow-x: auto; max-width: 100%; }
+  /* The top bar wraps to three rows here, so banners go below it and both
+     panels open from the bottom corners, above the sim bar when it's showing. */
+  .banner { top: 172px; left: 14px; width: calc(100% - 28px); }
+  /* bottom: 40px keeps Cesium's credit line visible underneath. */
+  .disaster-panel, .panel { top: auto; bottom: 40px; z-index: 6; max-height: 55%; }
+  .disaster-panel:not(.collapsed), .panel:not(.collapsed) { left: 14px; right: 14px; width: auto; }
+  .panel { max-height: 55%; }
+  .app.sim-active .disaster-panel, .app.sim-active .panel { bottom: 176px; }
+  .banner.sim-error { top: 232px; }
 }

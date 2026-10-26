@@ -16,6 +16,7 @@ import {
   createWorldImageryAsync,
   OpenStreetMapImageryProvider,
   Math as CesiumMath,
+  Matrix4,
   Viewer,
   type TerrainProvider,
 } from "cesium";
@@ -115,15 +116,26 @@ export function flyToPoint(
   });
 }
 
-/** Drops a single pin with a label at the selected place, replacing the last one. */
-export function setMarker(viewer: Viewer, lon: number, lat: number, heightM: number, label: string) {
-  viewer.entities.removeById(MARKER_ID);
+/**
+ * Drops a labelled pin, replacing any earlier pin with the same id. The
+ * selected place and the eruption vent each have their own.
+ */
+export function setMarker(
+  viewer: Viewer,
+  lon: number,
+  lat: number,
+  heightM: number,
+  label: string,
+  id: string = MARKER_ID,
+  colour = "#ff7a3d",
+) {
+  viewer.entities.removeById(id);
   viewer.entities.add({
-    id: MARKER_ID,
+    id,
     position: Cartesian3.fromDegrees(lon, lat, heightM),
     point: {
       pixelSize: 9,
-      color: Color.fromCssColorString("#ff7a3d"),
+      color: Color.fromCssColorString(colour),
       outlineColor: Color.WHITE,
       outlineWidth: 2,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -141,6 +153,43 @@ export function setMarker(viewer: Viewer, lon: number, lat: number, heightM: num
   });
 }
 const MARKER_ID = "selected-place";
+
+export function removeMarker(viewer: Viewer, id: string) {
+  viewer.entities.removeById(id);
+}
+
+/** The ground point under a screen position, or undefined if it's sky. */
+export function pickGround(viewer: Viewer, x: number, y: number): { lon: number; lat: number; heightM: number } | undefined {
+  const ray = viewer.camera.getPickRay(new Cartesian2(x, y));
+  const hit = ray && viewer.scene.globe.pick(ray, viewer.scene);
+  if (!hit) return undefined;
+  const c = Cartographic.fromCartesian(hit);
+  return { lon: CesiumMath.toDegrees(c.longitude), lat: CesiumMath.toDegrees(c.latitude), heightM: c.height };
+}
+
+/**
+ * Slowly circles the camera around a point, keeping the distance and tilt the
+ * camera has when it starts. Returns a function that stops the orbit and hands
+ * the camera back to the mouse.
+ */
+export function startOrbit(viewer: Viewer, lon: number, lat: number, heightM: number, degreesPerSecond = 4): () => void {
+  const centre = Cartesian3.fromDegrees(lon, lat, heightM);
+  const camera = viewer.camera;
+  const range = Cartesian3.distance(camera.positionWC, centre);
+  const pitch = Math.min(-0.05, camera.pitch);
+  let heading = camera.heading;
+  let last = performance.now();
+  const remove = viewer.scene.preRender.addEventListener(() => {
+    const now = performance.now();
+    heading += CesiumMath.toRadians(degreesPerSecond) * ((now - last) / 1000);
+    last = now;
+    camera.lookAt(centre, new HeadingPitchRange(heading, pitch, range));
+  });
+  return () => {
+    remove();
+    camera.lookAtTransform(Matrix4.IDENTITY);
+  };
+}
 
 /**
  * Ground height at a point from the loaded terrain model. Returns undefined

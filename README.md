@@ -1,10 +1,12 @@
 # Earthbreaker
 
-A browser-based 3D Earth you can explore with real terrain, and, in later milestones, a sandbox for
-cinematic disaster simulations over that terrain.
+A browser-based 3D Earth you can explore with real terrain, and a sandbox for triggering cinematic
+disasters over that terrain.
 
-Terrain and imagery come from real geographic data. Disaster effects (when they arrive) will be
-approximate visualisations, **not** scientific forecasts.
+Live: <https://matthewleepark.github.io/earthbreaker/>
+
+Terrain and imagery come from real geographic data. Disaster effects are simplified time-lapse
+visualisations, **not** scientific forecasts.
 
 ## Status
 
@@ -12,16 +14,27 @@ approximate visualisations, **not** scientific forecasts.
 
 - A 3D globe (CesiumJS) you can rotate, zoom and tilt
 - Place search for anywhere on Earth (OpenStreetMap Nominatim)
-- One-click flights to Mount Everest and Mount Rainier, framed to show the surrounding landscape
+- One-click flights to Mount Everest, Mount Rainier and Mount St. Helens
 - A details panel showing the place name, coordinates and elevation (only when a real source exists), plus the camera's altitude
 - Clear messages for a missing or rejected token, failed searches, and browsers without WebGL
-- Direct links: `?place=everest` or `?place=rainier`
+- Direct links: `?place=everest`, `?place=rainier` or `?place=st-helens`
 
-Not started yet: buildings, disasters, and simulation controls. See [Roadmap](#roadmap).
+**First disaster: volcanic eruption (done)**
+
+- Pick a vent: the selected place, or any point with **Pick on map**
+- Settings: intensity, duration, ash-plume scale, lava amount, wind direction and strength
+- Four phases: warning (steam, vent glow) → main eruption (flash, ash column, glowing ejecta) →
+  lava flowing downhill over the terrain → aftermath (the plume thins, lava crusts over into dark rock)
+- Controls: Pause/Resume, Reset, Replay (same random seed), 1×/2×/4× speed, Before/After, Orbit camera
+- Simulation numbers in the details panel: lava-covered area, runout, share still molten
+- Every eruption is labelled: **real volcano** (from a built-in list), **fictional** (e.g. Everest),
+  or **sandbox** (anywhere else)
+
+Not started yet: buildings and other disasters. See [Roadmap](#roadmap).
 
 ## Setup
 
-You need [Node.js](https://nodejs.org/) 20 or newer (built and tested with Node 25.9).
+You need [Node.js](https://nodejs.org/) 22 or newer (built and tested with Node 25.9).
 
 ```sh
 npm install
@@ -30,7 +43,8 @@ npm install
 ### Cesium ion token (free, recommended)
 
 Without a token the app still runs, but the ground is flat and the imagery is a street map. With one
-you get Cesium World Terrain (real elevation) and Bing Maps satellite imagery.
+you get Cesium World Terrain (real elevation) and Bing Maps satellite imagery, and lava follows the
+real ridges and valleys.
 
 1. Create a free account at <https://ion.cesium.com/signup>.
 2. Open **Access Tokens** (<https://ion.cesium.com/tokens>) and copy the **Default** token, or create
@@ -56,12 +70,16 @@ you get Cesium World Terrain (real elevation) and Bing Maps satellite imagery.
 | `npm run dev` | Start the dev server at <http://localhost:5173> |
 | `npm run build` | Type-check, then build to `dist/` |
 | `npm run preview` | Serve the built `dist/` at <http://localhost:4173> |
+| `npm test` | Run the lava-model tests (Node's built-in test runner) |
 | `npm run typecheck` | Type-check only |
+
+Add `?debug` to the URL to expose the Cesium viewer in the browser console as `earthbreaker.viewer`.
 
 ## Deployment
 
-Every push to `main` builds the app and publishes it to GitHub Pages at
-<https://matthewleepark.github.io/earthbreaker/> (`.github/workflows/deploy.yml`).
+Every push to `main` runs the tests, builds the app and publishes it to GitHub Pages at
+<https://matthewleepark.github.io/earthbreaker/> (`.github/workflows/deploy.yml`). If a test fails,
+nothing is deployed.
 
 One-time setup:
 
@@ -82,29 +100,57 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
 | Left-drag | Rotate the globe, or pan when close to the ground |
 | Scroll / right-drag | Zoom |
 | Ctrl + left-drag, or middle-drag | Tilt and turn the camera |
-| Esc | Close menus |
+| Esc | Close menus, or cancel picking a vent |
 
-## How it's built
+## How the eruption works
 
-| Piece | Choice |
-| --- | --- |
-| UI | React 19 + TypeScript |
-| Globe, camera, terrain | CesiumJS 1.146 |
-| Terrain and imagery | Cesium ion (World Terrain, Bing aerial); OpenStreetMap tiles as the no-token fallback |
-| Place search | OpenStreetMap Nominatim |
-| Build | Vite 8 (plus `vite-plugin-static-copy` for Cesium's workers and assets) |
+Everything runs on Cesium's clock. Cesium's particle systems already move with that clock, so
+pausing it freezes every effect at once, and the speed buttons are just the clock's multiplier.
+`disasters/controller.ts` owns the clock. Each disaster gets `update(elapsed)` every frame and has to
+clean up all of its own effects in `destroy()`.
+
+**Ash plume** (`volcano/plume.ts`): a few thousand smoke sprites (Cesium `ParticleSystem`).
+
+- Each puff rises quickly at first and slows as it nears the set column height.
+- The column widens as it climbs, spreads into an umbrella cloud at the top, and bends with the wind,
+  more so the higher it gets.
+- Colour goes from dark brown-grey at the vent to lighter grey above, lit orange from below by the
+  vent glow.
+- Ejecta are glowing sprites on ballistic arcs.
+
+**Lava** (`volcano/lavaSim.ts`, `lavaLayer.ts`): a cellular automaton on a 128 × 128 grid of real
+terrain heights, sampled from Cesium World Terrain around the vent.
+
+- Every 0.1 s of simulated time, molten lava moves from each cell to its lower neighbours. It's
+  weighted heavily toward the steepest way down, which is what forms channels and lobes.
+- Lava carries its heat with it. Everything cools, and thin edges cool fastest. Below a set
+  temperature, lava stops moving and stays as rock.
+- The grid is painted onto a canvas and draped on the terrain as a texture, so it follows every gully:
+  yellow-white cores, orange channels, dark red edges, black crust.
+
+What this model is and isn't:
+
+- The rules have the right shape (downhill, heat-dependent stiffness, cooling), but the numbers are
+  tuned so a flow travels a few km in about a minute of time-lapse. They aren't measured lava
+  properties.
+- Area and runout are real outputs of the model, labelled as estimates. The ash column height is a
+  setting, not something the model computes.
+- In the aftermath, cooling is sped up as part of the time-lapse, so flows finish as rock.
+- Particle motion uses `Math.random`, so only the lava is exactly repeatable with a seed. The plume is
+  only similar each time.
 
 ```
 src/
-  App.tsx              UI: top bar, search, presets, details panel, help
-  globe/createGlobe.ts Map-provider setup, camera flights, marker, terrain sampling
-  globe/GlobeView.tsx  Mounts the Cesium viewer and cleans it up
-  services/geocode.ts  Nominatim search
-  data/places.ts       Preset places and camera framing
+  App.tsx                     UI state: search, presets, vent, details panel
+  globe/                      Map provider setup, camera flights and orbit, markers, picking
+  disasters/types.ts          The shared Disaster interface every disaster implements
+  disasters/controller.ts     Clock-driven run/pause/speed/reset for any disaster
+  disasters/registry.ts       Disasters shown in the panel (only the eruption is built so far)
+  disasters/volcano/          Eruption timeline, plume, lava model and lava texture
+  data/places.ts, volcanoes.ts  Presets, and known volcanoes used for the real/fictional label
+  ui/                         Disaster panel and simulation bar
+tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 ```
-
-Map-provider code (`globe/`) is kept separate from UI state (`App.tsx`), so the disaster system can
-be added as its own module without touching the map setup.
 
 ## Data sources and attribution
 
@@ -115,31 +161,34 @@ be added as its own module without touching the map setup.
   [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/) (no more than
   one search per second; heavy use is not allowed). Search only runs when you press Search, never on
   every keystroke.
-- Preset elevations: Everest 8,849 m (Nepal–China joint survey, 2020); Rainier 4,392 m (USGS).
+- Preset elevations: Everest 8,849 m (Nepal–China joint survey, 2020); Rainier 4,392 m (USGS);
+  St. Helens 2,549 m (USGS).
+- The volcano list (`data/volcanoes.ts`) uses approximate summit coordinates, good to about a
+  kilometre. It's only used for the real/fictional label.
 
 ## Known limitations
 
-- **Real terrain has not been checked here yet.** The no-token path, search, flights, and the
-  bad-token error were tested in headless Chrome. The ion terrain/imagery path needs a real token
-  to check.
-- Without a token, the ground is a smooth ellipsoid. Mountains are flat, and elevations for search
-  results show "Not available" rather than a made-up number.
-- Search-result elevations come from sampling the terrain model, so they're the ground height at the
-  result's pin, not an official survey figure.
-- The sun is fixed at about 10:30 local time at each destination, so terrain is always lit. It's not
-  the real current time of day.
-- No 3D buildings yet (Milestone 3).
-- Desktop first. It works on narrow screens, but the globe controls are built for a mouse.
+- **Lava on real terrain hasn't been checked in a browser yet.** The eruption was tested locally
+  without a token (flat ground), and the lava model was tested on synthetic slopes and valleys
+  (`npm test`).
+- Without a token the ground is flat, so lava pools in a disc instead of running down valleys.
+- The volcano list is short (15 well-known volcanoes). A real volcano that isn't on it, like
+  Mount Adams, is labelled "sandbox".
+- Lava is modelled only inside a square around the vent (about 7–20 km across, depending on the
+  lava setting). The details panel says when a flow reaches the edge.
+- The sun is fixed at about 10:30 local time at each destination, so terrain is always lit.
+- No 3D buildings yet.
+- Desktop first. It works on phones, but the globe controls are built for a mouse.
 - The production bundle is large (~4.4 MB, ~1.2 MB gzipped), almost all of it CesiumJS.
 
 ## Roadmap
 
-Taken from the project blueprint, one milestone at a time:
+Taken from the project blueprint. The eruption was moved ahead of buildings on request:
 
 1. ~~Foundation and globe~~
-2. ~~Real-world navigation (search, Everest, Rainier)~~, combined with step 1 above
-3. Environment: 3D buildings where data exists (Cesium OSM Buildings / Google Photorealistic 3D Tiles), procedural settlements where it doesn't
-4. First disaster: volcanic eruption (plume, ejecta, terrain-following lava, aftermath)
-5. Simulation controls: pause, resume, reset, timeline, before/after
+2. ~~Real-world navigation (search, Everest, Rainier)~~
+3. ~~First disaster: volcanic eruption~~
+4. ~~Simulation controls: pause, resume, reset, timeline, before/after~~
+5. Environment: 3D buildings where data exists (Cesium OSM Buildings / Google Photorealistic 3D Tiles), procedural settlements where it doesn't
 6. Polish: lighting, camera work, performance
 7. More disasters: meteor impact, earthquake, landslide

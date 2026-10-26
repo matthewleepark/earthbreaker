@@ -47,6 +47,18 @@ export const PRESETS: Place[] = [
     volcanic: true,
     view: { range: 32000, heading: 340, pitch: -22 },
   },
+  {
+    id: "st-helens",
+    name: "Mount St. Helens",
+    region: "Washington, USA",
+    lat: 46.1912,
+    lon: -122.1944,
+    elevationM: 2549,
+    elevationSource: "USGS (after the 1980 eruption)",
+    volcanic: true,
+    // From the north, looking into the horseshoe crater left by 1980.
+    view: { range: 16000, heading: 180, pitch: -24 },
+  },
 ];
 
 /** Camera view for a search result: wider for big areas, closer for small ones. */

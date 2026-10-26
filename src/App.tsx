@@ -1,10 +1,35 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  BillboardCollection,
+  HeadingPitchRange,
+  ParticleSystem,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
+  type Cartesian2,
+} from "cesium";
 import { GlobeView, type CameraReadout } from "./globe/GlobeView";
-import { flyToPoint, sampleGroundHeight, setMarker, type Globe } from "./globe/createGlobe";
+import {
+  flyToPoint,
+  pickGround,
+  removeMarker,
+  sampleGroundHeight,
+  setMarker,
+  startOrbit,
+  type Globe,
+} from "./globe/createGlobe";
 import { PRESETS, viewForExtent, type Place } from "./data/places";
+import { matchVolcano } from "./data/volcanoes";
 import { searchPlaces, type SearchResult } from "./services/geocode";
+import { DISASTERS } from "./disasters/registry";
+import { IDLE_STATE, SimulationController, type SimState } from "./disasters/controller";
+import { randomSeed } from "./disasters/random";
+import type { Params } from "./disasters/types";
+import { DisasterPanel, type Vent } from "./ui/DisasterPanel";
+import { SimControls } from "./ui/SimControls";
+import { isPhone } from "./ui/isPhone";
 
 const ION_TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim() || undefined;
+const VENT_MARKER = "vent";
 
 interface Selection {
   name: string;
@@ -24,6 +49,12 @@ type SearchState =
 
 export default function App() {
   const globeRef = useRef<Globe | null>(null);
+  const simRef = useRef<SimulationController | null>(null);
+  const stopOrbitRef = useRef<(() => void) | null>(null);
+  const lastRunRef = useRef<{ vent: Vent; params: Params; seed: number } | null>(null);
+  /** Where the camera looks for the current eruption; the orbit circles this point. */
+  const framingRef = useRef<{ lon: number; lat: number; heightM: number } | null>(null);
+
   const [globeState, setGlobeState] = useState<"loading" | "ready" | "error">("loading");
   const [fatalError, setFatalError] = useState<string>();
   const [providerNote, setProviderNote] = useState<string>();
@@ -33,12 +64,29 @@ export default function App() {
   const [flying, setFlying] = useState(false);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ kind: "idle" });
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(!isPhone());
   const [helpOpen, setHelpOpen] = useState(false);
   const searchAbort = useRef<AbortController | null>(null);
 
+  const [disasterId, setDisasterId] = useState(DISASTERS[0].id);
+  const disaster = DISASTERS.find((d) => d.id === disasterId) ?? DISASTERS[0];
+  const [params, setParams] = useState<Params>(disaster.defaults);
+  const [vent, setVent] = useState<Vent>();
+  const [picking, setPicking] = useState(false);
+  const [sim, setSim] = useState<SimState>(IDLE_STATE);
+  const [orbiting, setOrbiting] = useState(false);
+
   const handleReady = useCallback((globe: Globe) => {
     globeRef.current = globe;
+    simRef.current = new SimulationController(globe.viewer, setSim);
+    // ?debug exposes the viewer in the console for testing camera views.
+    if (new URLSearchParams(window.location.search).has("debug")) {
+      (window as unknown as { earthbreaker: unknown }).earthbreaker = {
+        viewer: globe.viewer,
+        sim: simRef.current,
+        cesium: { HeadingPitchRange, ParticleSystem, BillboardCollection },
+      };
+    }
     setGlobeState("ready");
     if (globe.providerError) {
       setProviderNote(`${globe.providerError} Showing street-map imagery on flat terrain instead.`);
@@ -54,14 +102,42 @@ export default function App() {
     setFatalError(message);
   }, []);
 
-  const goTo = useCallback((target: Selection, heightM: number, view: Place["view"]) => {
-    const globe = globeRef.current;
-    if (!globe) return;
-    setSelection(target);
-    setFlying(true);
-    setMarker(globe.viewer, target.lon, target.lat, heightM, target.name);
-    flyToPoint(globe.viewer, target.lon, target.lat, heightM, view, () => setFlying(false));
+  const stopOrbit = useCallback(() => {
+    stopOrbitRef.current?.();
+    stopOrbitRef.current = null;
+    setOrbiting(false);
   }, []);
+
+  /** Ends any running disaster and brings the place markers back. */
+  const resetSim = useCallback(() => {
+    stopOrbit();
+    simRef.current?.reset();
+    const globe = globeRef.current;
+    if (globe) globe.viewer.entities.show = true;
+  }, [stopOrbit]);
+
+  const goTo = useCallback(
+    (target: Selection, heightM: number, view: Place["view"]) => {
+      const globe = globeRef.current;
+      if (!globe) return;
+      // Changing location ends the current disaster (and frees its GPU resources).
+      resetSim();
+      setPicking(false);
+      setSelection(target);
+      setFlying(true);
+      setMarker(globe.viewer, target.lon, target.lat, heightM, target.name);
+      removeMarker(globe.viewer, VENT_MARKER);
+      // The place itself is the default vent.
+      setVent({
+        name: target.name,
+        lat: target.lat,
+        lon: target.lon,
+        match: matchVolcano(target.lat, target.lon, target.volcanic === false),
+      });
+      flyToPoint(globe.viewer, target.lon, target.lat, heightM, view, () => setFlying(false));
+    },
+    [resetSim],
+  );
 
   const goToPreset = useCallback(
     (place: Place) => {
@@ -125,6 +201,72 @@ export default function App() {
     }
   }
 
+  // While picking, the next click on the ground becomes the vent.
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!picking || !globe) return;
+    const { viewer } = globe;
+    viewer.canvas.style.cursor = "crosshair";
+    const handler = new ScreenSpaceEventHandler(viewer.canvas);
+    handler.setInputAction((click: { position: Cartesian2 }) => {
+      const hit = pickGround(viewer, click.position.x, click.position.y);
+      if (!hit) return;
+      const name = `Point ${hit.lat.toFixed(3)}°, ${hit.lon.toFixed(3)}°`;
+      setVent({ name, lat: hit.lat, lon: hit.lon, match: matchVolcano(hit.lat, hit.lon, false) });
+      setMarker(viewer, hit.lon, hit.lat, hit.heightM, "Vent", VENT_MARKER, "#ffd166");
+      setPicking(false);
+    }, ScreenSpaceEventType.LEFT_CLICK);
+    return () => {
+      handler.destroy();
+      viewer.canvas.style.cursor = "";
+    };
+  }, [picking]);
+
+  const runDisaster = useCallback(
+    async (runVent: Vent, runParams: Params, seed: number) => {
+      const globe = globeRef.current;
+      const controller = simRef.current;
+      if (!globe || !controller) return;
+      resetSim();
+      setPicking(false);
+      lastRunRef.current = { vent: runVent, params: runParams, seed };
+      const ground = await sampleGroundHeight(globe, runVent.lon, runVent.lat);
+      const instance = await controller.trigger(
+        { viewer: globe.viewer, providerMode: globe.mode },
+        disaster,
+        { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
+        runParams,
+        seed,
+      );
+      if (!instance) return;
+      // Pins would float in front of the plume; hide them until reset.
+      globe.viewer.entities.show = false;
+      const f = instance.framing;
+      framingRef.current = f;
+      flyToPoint(globe.viewer, f.lon, f.lat, f.heightM, { range: f.range, heading: f.heading, pitch: f.pitch });
+    },
+    [disaster, resetSim],
+  );
+
+  const trigger = () => {
+    if (vent) runDisaster(vent, params, randomSeed());
+  };
+
+  const replay = () => {
+    const last = lastRunRef.current;
+    if (last) runDisaster(last.vent, last.params, last.seed);
+  };
+
+  const toggleOrbit = () => {
+    const globe = globeRef.current;
+    const f = framingRef.current;
+    if (!globe || !f) return;
+    if (stopOrbitRef.current) return stopOrbit();
+    globe.viewer.camera.cancelFlight();
+    stopOrbitRef.current = startOrbit(globe.viewer, f.lon, f.lat, f.heightM);
+    setOrbiting(true);
+  };
+
   // A link like ?place=rainier opens straight onto that preset.
   useEffect(() => {
     if (globeState !== "ready") return;
@@ -137,6 +279,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setHelpOpen(false);
+        setPicking(false);
         setSearch({ kind: "idle" });
       }
     };
@@ -145,9 +288,10 @@ export default function App() {
   }, []);
 
   const ready = globeState === "ready";
+  const simActive = sim.status !== "idle";
 
   return (
-    <div className="app">
+    <div className={simActive ? "app sim-active" : "app"}>
       <GlobeView
         ionToken={ION_TOKEN}
         onReady={handleReady}
@@ -228,6 +372,26 @@ export default function App() {
       )}
 
       {ready && (
+        <DisasterPanel
+          disasters={DISASTERS}
+          selectedId={disaster.id}
+          onSelect={(id) => {
+            const next = DISASTERS.find((d) => d.id === id);
+            if (!next?.available) return;
+            setDisasterId(id);
+            setParams(next.defaults);
+          }}
+          params={params}
+          onParam={(key, value) => setParams((p) => ({ ...p, [key]: value }))}
+          vent={vent}
+          picking={picking}
+          onPickVent={() => setPicking((p) => !p)}
+          busy={sim.status === "preparing"}
+          onTrigger={trigger}
+        />
+      )}
+
+      {ready && (
         <aside className={panelOpen ? "panel" : "panel collapsed"} aria-label="Location details">
           <button type="button" className="panel-toggle" onClick={() => setPanelOpen((o) => !o)}>
             {panelOpen ? "Hide details" : "Details"}
@@ -239,9 +403,6 @@ export default function App() {
                   <div className="place">
                     <h2>{selection.name}</h2>
                     {selection.detail && <p>{selection.detail}</p>}
-                    {selection.volcanic === false && (
-                      <p className="tag">Not a volcano: an eruption here would be fictional</p>
-                    )}
                   </div>
                   <Row label="Coordinates" value={formatLatLon(selection.lat, selection.lon)} />
                   <Row
@@ -260,9 +421,39 @@ export default function App() {
                   note={formatLatLon(camera.lat, camera.lon)}
                 />
               )}
+              {simActive && (
+                <div className="sim-details">
+                  <h3>Simulation</h3>
+                  <Row label="Phase" value={sim.phase} />
+                  {sim.metrics.map((m) => (
+                    <Row key={m.label} label={m.label} value={m.value} note={m.note} />
+                  ))}
+                  {sim.seed !== undefined && <Row label="Seed" value={String(sim.seed)} note="Replay uses the same seed" />}
+                </div>
+              )}
             </dl>
           )}
         </aside>
+      )}
+
+      {sim.error && (
+        <div className="banner warn sim-error" role="alert">
+          <span>The disaster could not start: {sim.error}</span>
+        </div>
+      )}
+
+      {ready && simActive && (
+        <SimControls
+          state={sim}
+          orbiting={orbiting}
+          onPause={() => simRef.current?.pause()}
+          onResume={() => simRef.current?.resume()}
+          onReset={resetSim}
+          onReplay={replay}
+          onSpeed={(s) => simRef.current?.setSpeed(s)}
+          onToggleEffects={() => simRef.current?.setEffectsVisible(!sim.effectsVisible)}
+          onToggleOrbit={toggleOrbit}
+        />
       )}
 
       {ready && (flying || tilesPending > 0) && (
@@ -279,11 +470,11 @@ export default function App() {
               <li><kbd>Left-drag</kbd> rotate the globe or pan the ground</li>
               <li><kbd>Scroll</kbd> or <kbd>right-drag</kbd> zoom</li>
               <li><kbd>Ctrl</kbd> + <kbd>left-drag</kbd> or <kbd>middle-drag</kbd> tilt and turn the camera</li>
-              <li><kbd>Esc</kbd> close menus</li>
+              <li><kbd>Esc</kbd> close menus or cancel picking a vent</li>
             </ul>
             <p className="fine">
-              Terrain and imagery come from real geographic data. Disaster simulations, when added, will be
-              approximate visualisations, not scientific forecasts.
+              Terrain and imagery come from real geographic data. Eruptions are simplified time-lapse
+              visualisations, not scientific forecasts.
             </p>
             <button type="button" className="chip" onClick={() => setHelpOpen(false)}>
               Close

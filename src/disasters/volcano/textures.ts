@@ -1,0 +1,79 @@
+// Particle sprites drawn once on canvases, so there are no image files to ship.
+
+let ashPuff: HTMLCanvasElement | undefined;
+let glowDot: HTMLCanvasElement | undefined;
+
+/**
+ * A lumpy smoke puff: a cluster of soft blobs with a darker underside, so
+ * overlapping puffs read as billowing volume rather than flat grey disks.
+ */
+export function ashPuffTexture(): HTMLCanvasElement {
+  if (ashPuff) return ashPuff;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const blobs = [
+    [64, 64, 46], [44, 58, 30], [84, 56, 32], [60, 42, 28], [76, 78, 26], [46, 80, 24], [92, 74, 20], [36, 70, 18],
+  ];
+  for (const [x, y, r] of blobs) {
+    const g = ctx.createRadialGradient(x - r * 0.25, y - r * 0.3, r * 0.1, x, y, r);
+    g.addColorStop(0, "rgba(255,255,255,0.95)");
+    g.addColorStop(0.55, "rgba(225,225,225,0.6)");
+    g.addColorStop(1, "rgba(200,200,200,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Shade the lower half so the light seems to come from above.
+  ctx.globalCompositeOperation = "source-atop";
+  const shade = ctx.createLinearGradient(0, 30, 0, size);
+  shade.addColorStop(0, "rgba(0,0,0,0)");
+  shade.addColorStop(1, "rgba(0,0,0,0.45)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, size, size);
+  ashPuff = canvas;
+  return canvas;
+}
+
+/** A bright core fading to transparent, used for ejecta, the vent glow and the flash. */
+export function glowTexture(): HTMLCanvasElement {
+  if (glowDot) return glowDot;
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.2, "rgba(255,255,255,0.85)");
+  g.addColorStop(0.5, "rgba(255,255,255,0.25)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  glowDot = canvas;
+  return canvas;
+}
+
+/** Tileable-looking crust noise: dark speckles and cracks to break up the lava's grid. */
+export function crustTexture(size: number, rng: () => number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  // Layers of random dark strokes at a few scales.
+  for (const [count, width, alpha] of [[900, 1.2, 0.35], [260, 2.2, 0.25], [60, 4, 0.18]] as const) {
+    for (let k = 0; k < count; k++) {
+      const x = rng() * size;
+      const y = rng() * size;
+      const len = 3 + rng() * 14 * width;
+      const a = rng() * Math.PI * 2;
+      ctx.strokeStyle = `rgba(0,0,0,${alpha * (0.5 + rng() * 0.5)})`;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + Math.cos(a + 1) * len * 0.5, y + Math.sin(a + 1) * len * 0.5, x + Math.cos(a) * len, y + Math.sin(a) * len);
+      ctx.stroke();
+    }
+  }
+  return canvas;
+}
