@@ -11,7 +11,6 @@ import {
   BoundingSphere,
   Ion,
   ImageryLayer,
-  JulianDate,
   IonWorldImageryStyle,
   createWorldImageryAsync,
   OpenStreetMapImageryProvider,
@@ -25,6 +24,8 @@ import {
 import type { CameraView } from "../data/places";
 import { PerformanceMonitor } from "./performance";
 import { Buildings } from "./buildings";
+import { Daylight, aimDaylight } from "./timeOfDay";
+import { Sculpt } from "./sculpt";
 
 export type ProviderMode = "ion" | "fallback";
 
@@ -46,6 +47,13 @@ export interface Globe {
   photorealError?: string;
   /** OpenStreetMap 3D buildings, when they loaded. */
   buildings?: Buildings;
+  /**
+   * The real terrain, never sculpted. Sculpt mode replaces viewer.terrainProvider
+   * with a wrapper around this; summit snapping keeps reading this one.
+   */
+  baseTerrain: TerrainProvider;
+  sculpt: Sculpt;
+  daylight: Daylight;
   quality: Quality;
   perf: PerformanceMonitor;
 }
@@ -107,9 +115,9 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
   // regardless. This is the biggest saving when the view is still.
   scene.requestRenderMode = true;
   scene.maximumRenderTimeChange = 0;
-  // The sun stays where we put it; it only moves when we fly somewhere new.
+  // The clock only runs during a disaster; lighting comes from Daylight
+  // (globe/timeOfDay.ts), not from the clock.
   viewer.clock.shouldAnimate = false;
-  setLocalMorning(viewer, -30);
 
   // Let the camera get right down to the ground. Collision detection (on by
   // default) stops it going below the terrain or into the 3D tiles.
@@ -135,6 +143,9 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
     photoreal,
     photorealError,
     buildings,
+    baseTerrain: terrainProvider,
+    sculpt: new Sculpt(viewer, terrainProvider, buildings),
+    daylight: new Daylight(viewer, photoreal),
     quality: "terrain",
     perf: new PerformanceMonitor(viewer, photoreal, buildings?.tileset),
   };
@@ -209,7 +220,8 @@ export function flyToPoint(
   view: CameraView,
   onArrive?: () => void,
 ) {
-  setLocalMorning(viewer, lon);
+  // Light the destination for the chosen time of day there.
+  aimDaylight(viewer, lon, lat);
   const centre = Cartesian3.fromDegrees(lon, lat, heightM);
   viewer.camera.flyToBoundingSphere(new BoundingSphere(centre, 0), {
     offset: new HeadingPitchRange(
@@ -312,11 +324,15 @@ export function startOrbit(viewer: Viewer, lon: number, lat: number, heightM: nu
 }
 
 /**
- * Ground height at a point from the loaded terrain model. Returns undefined
- * on the flat fallback globe, where any number would be made up.
+ * Ground height at a point, including any Sculpt-mode edits. On the flat
+ * fallback globe there is no terrain model, so it's the sculpted height where
+ * there is one and undefined elsewhere (any other number would be made up).
  */
 export async function sampleGroundHeight(globe: Globe, lon: number, lat: number): Promise<number | undefined> {
-  if (globe.mode !== "ion") return undefined;
+  if (globe.mode !== "ion") {
+    const sculpted = globe.sculpt.deltaAt(lon, lat);
+    return sculpted !== 0 ? sculpted : undefined;
+  }
   try {
     const [point] = await sampleTerrainMostDetailed(globe.viewer.terrainProvider, [
       Cartographic.fromDegrees(lon, lat),
@@ -331,6 +347,9 @@ export async function sampleGroundHeight(globe: Globe, lon: number, lat: number)
  * The highest ground within `radiusM` of a point, from a 9 × 9 grid of terrain
  * samples. Used to put a volcano's vent on its actual summit when the listed
  * coordinates are slightly off. Undefined on the flat fallback globe.
+ *
+ * Reads the real terrain (globe.baseTerrain), never the sculpted one, so
+ * Sculpt mode can't move a catalogue volcano's vent.
  */
 export async function findSummit(
   globe: Globe,
@@ -346,25 +365,13 @@ export async function findSummit(
     for (let j = -4; j <= 4; j++) points.push(Cartographic.fromDegrees(lon + (j / 4) * dLon, lat + (i / 4) * dLat));
   }
   try {
-    const sampled = await sampleTerrainMostDetailed(globe.viewer.terrainProvider, points);
+    const sampled = await sampleTerrainMostDetailed(globe.baseTerrain, points);
     let best: Cartographic | undefined;
     for (const p of sampled) if (Number.isFinite(p.height) && (!best || p.height > best.height)) best = p;
     return best && { lon: CesiumMath.toDegrees(best.longitude), lat: CesiumMath.toDegrees(best.latitude), heightM: best.height };
   } catch {
     return undefined;
   }
-}
-
-/**
- * Globe lighting follows the real sun, so a target on the night side would
- * arrive dark. Put the sun at about 10:30 local solar time over `lon` on a
- * fixed early-autumn date, which gives long, readable shadows on mountains.
- */
-function setLocalMorning(viewer: Viewer, lon: number) {
-  const utcHours = ((10.5 - lon / 15) % 24 + 24) % 24;
-  const date = new Date(Date.UTC(2026, 8, 20, 0, 0, 0));
-  date.setUTCMinutes(Math.round(utcHours * 60));
-  viewer.clock.currentTime = JulianDate.fromDate(date);
 }
 
 function describeIonError(err: unknown): string {

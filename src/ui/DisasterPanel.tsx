@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import type { DisasterDefinition, Params } from "../disasters/types";
 import type { VolcanoMatch } from "../data/volcanoes";
 import { isPhone } from "./isPhone";
+import { PanelTabs, type LeftTab } from "./PanelTabs";
 
 export interface Vent {
   name: string;
@@ -21,6 +22,7 @@ interface Props {
   onPickVent: () => void;
   busy: boolean;
   onTrigger: () => void;
+  onTab: (tab: LeftTab) => void;
 }
 
 /**
@@ -28,7 +30,7 @@ interface Props {
  * simulation tick that updates the rest of the app.
  */
 export const DisasterPanel = memo(function DisasterPanel(props: Props) {
-  const { disasters, selectedId, onSelect, params, onParam, vent, picking, onPickVent, busy, onTrigger } = props;
+  const { disasters, selectedId, onSelect, params, onParam, vent, picking, onPickVent, busy, onTrigger, onTab } = props;
   const [open, setOpen] = useState(() => !isPhone());
   const selected = disasters.find((d) => d.id === selectedId) ?? disasters[0];
 
@@ -45,7 +47,7 @@ export const DisasterPanel = memo(function DisasterPanel(props: Props) {
   return (
     <aside className="disaster-panel" aria-label="Disasters">
       <div className="panel-head">
-        <h2>Disasters</h2>
+        <PanelTabs active="disasters" onTab={onTab} />
         <button type="button" className="panel-toggle" onClick={() => setOpen(false)}>
           Hide
         </button>

@@ -7,6 +7,7 @@ import {
   type Scene,
 } from "cesium";
 import { ashPuffTexture, chunkTextures } from "./textures";
+import { lightLevel } from "../../globe/timeOfDay";
 
 /** Ground height in metres at a point given as metres east and north of the vent. */
 export type GroundAt = (east: number, north: number) => number;
@@ -146,7 +147,14 @@ export class Debris {
     b.width = size;
     b.height = size * (0.75 + Math.random() * 0.4);
     b.rotation = Math.random() * Math.PI * 2;
-    b.color = c.kind === "hot" ? HOT : c.kind === "ice" ? ICE : ROCK[Math.floor(Math.random() * ROCK.length)];
+    if (c.kind === "hot") {
+      b.color = HOT;
+    } else {
+      // Rock and ice are lit by the time of day; lava bombs glow on their own.
+      const base = c.kind === "ice" ? ICE : ROCK[Math.floor(Math.random() * ROCK.length)];
+      const a = lightLevel.ambient;
+      b.color = Color.fromBytes(base.red * 255 * a, base.green * 255 * a, base.blue * 255 * a, 255, this.colour);
+    }
     b.show = true;
     this.place(c);
   }

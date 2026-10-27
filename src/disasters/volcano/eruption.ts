@@ -16,6 +16,8 @@ const LAVA_MAX_STEP_S = 0.5;
 const LAVA_BUDGET_MS = 6;
 /** Repainting and re-uploading the lava texture is the costly part; ~5 times a second looks smooth. */
 const LAVA_REPAINT_MS = 200;
+/** Lava never reaches farther than this from the vent. */
+const MAX_RUNOUT_M = 10_000;
 /** Column heights by intensity 1–5, in km, before the plume-scale multiplier. */
 const COLUMN_KM = [3, 6, 10, 16, 24];
 
@@ -112,13 +114,13 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
       // Lava breaks out through the lowest notch of the crater and runs down that side.
       ventCells: breachVent(ground, GRID, cellM),
       rng,
+      maxRunoutM: MAX_RUNOUT_M,
     });
     layer = new LavaLayer(viewer.scene, sim, rectangle, rng);
   });
 
   /** Terrain height at a point east/north of the vent: the grid where it has data, a guess beyond it. */
   const groundAt = (east: number, north: number): number => {
-    if (ctx.providerMode !== "ion") return site.heightM;
     const col = (east + halfSizeM) / cellM - 0.5;
     const row = (halfSizeM - north) / cellM - 0.5;
     if (ground && col >= 0 && row >= 0 && col < GRID - 1 && row < GRID - 1) {
@@ -361,7 +363,21 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
 
 async function loadGround(ctx: DisasterContext, rectangle: Rectangle): Promise<{ ground: Float32Array; note: string }> {
   const ground = new Float32Array(GRID * GRID);
-  if (ctx.providerMode !== "ion") return { ground, note: " · flat ground (no terrain token)" };
+  if (ctx.providerMode !== "ion") {
+    // No terrain model: the ground is level except where it has been sculpted.
+    let sculpted = false;
+    const toDeg = 180 / Math.PI;
+    for (let row = 0; row < GRID; row++) {
+      const lat = (rectangle.north - ((row + 0.5) / GRID) * rectangle.height) * toDeg;
+      for (let col = 0; col < GRID; col++) {
+        const lon = (rectangle.west + ((col + 0.5) / GRID) * rectangle.width) * toDeg;
+        const h = ctx.sculptDelta(lon, lat);
+        ground[row * GRID + col] = h;
+        if (h !== 0) sculpted = true;
+      }
+    }
+    return { ground, note: sculpted ? " on sculpted ground (no terrain token)" : " · flat ground (no terrain token)" };
+  }
 
   const points: Cartographic[] = [];
   for (let row = 0; row < GRID; row++) {

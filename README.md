@@ -41,7 +41,10 @@ visualisations, **not** scientific forecasts.
   - **Aftermath:** the plume thins and the lava crusts over into dark rock.
 - Sound, synthesised in the browser (no audio files): rumble, boom, roar, thunder. Toggle it with
   **Sound on/off**; the choice is remembered.
-- Controls: Pause/Resume, Reset, Replay (same random seed), 1×/2×/4× speed, Before/After, Orbit camera
+- Controls: Pause/Resume, Reset (calms the eruption and clears it), Replay (same random seed),
+  1×/2×/3×/4× speed, Before/After, Orbit camera
+- Choosing a volcano only arms it as the vent. Nothing erupts until you press Trigger.
+- Lava never travels more than 10 km from the vent.
 - Simulation numbers in the details panel: lava-covered area, runout, share still molten
 - Every eruption is labelled: **real volcano** (from a built-in list), **fictional** (e.g. Everest),
   or **sandbox** (anywhere else)
@@ -52,6 +55,36 @@ visualisations, **not** scientific forecasts.
     starts at the summit even if the listed coordinates are slightly off.
   - Calderas and lava lakes keep their listed point.
   - Every volcano also works as a link, e.g. `?place=fuji` or `?place=vesuvius`.
+
+**Time of day (done)**
+
+- The **☀ Noon ▾** menu in the top bar switches the current view between **Dawn**, **Noon**, **Dusk**
+  and **Night**.
+  - Dawn, Noon and Dusk light the scene from where the real sun is at that moment today, at the
+    place you're viewing, using Cesium's solar model. Dawn and dusk are when the sun is 4° above
+    the horizon, and noon is when it's highest. The sky and haze take on Cesium's low-sun colours.
+  - Night is a dim blue moonlight with a darkened sky.
+- The menu shows the local solar time each setting stands for.
+- The light is separate from the simulation clock, so you can switch mid-eruption. At night the ash
+  column turns dark, and the vent glow, lava, fires and lightning light up the scene.
+- Google's photorealistic tiles have lighting baked into them, so a tint matches them to the chosen
+  time.
+
+**Sculpt mode (done)**
+
+- The **Sculpt** tab in the left panel has three tools: **Spawn peak**, **Raise land** and
+  **Lower land**. Set a height and radius, then click the map, as many times as you like. Undo and
+  Clear remove edits.
+- Edits are local and visual only: they live in this browser tab and never change the map data.
+- How it works (`globe/sculpt.ts`): a terrain provider wraps the real one, and every tile an edit
+  touches is rebuilt as an even 65 × 65 mesh of real height plus the edit. The satellite imagery
+  drapes over the new shape, and the lava model, vent heights and debris landings all see it, so
+  lava flows down a sculpted peak.
+- Summit snapping and the volcano catalog read the original terrain (`globe.baseTerrain`), so
+  sculpting never moves a named volcano's vent or changes the list (there's a test for this).
+- Buildings standing on sculpted ground are hidden, since they would float or sink.
+- Sculpting switches to the terrain view, because Google's 3D mesh can't be reshaped. It's
+  disabled while an eruption is running.
 
 **Photorealistic 3D (done)**
 
@@ -108,7 +141,7 @@ real ridges and valleys.
 | `npm run dev` | Start the dev server at <http://localhost:5173> |
 | `npm run build` | Type-check, then build to `dist/` |
 | `npm run preview` | Serve the built `dist/` at <http://localhost:4173> |
-| `npm test` | Run the lava-model tests (Node's built-in test runner) |
+| `npm test` | Run the lava-model and sculpt tests (Node's built-in test runner) |
 | `npm run typecheck` | Type-check only |
 
 Add `?debug` to the URL to expose the Cesium viewer in the browser console as `earthbreaker.viewer`.
@@ -275,8 +308,17 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
   details, so if it guesses wrong, pick the mode yourself.
 - Lava is modelled only inside a square around the vent (about 7–20 km across, depending on the
   lava setting). The details panel says when a flow reaches the edge.
-- The sun is fixed at about 10:30 local time at each destination, so terrain is always lit.
-- **Buildings and fires haven't been checked in a browser yet**, because they need the ion token.
+- Time of day uses today's date, so dawn and dusk times change with the seasons. Near the poles,
+  where the sun may not rise or set today, the closest moment is used. The drawn sun and moon discs
+  are hidden, because they follow the clock rather than the chosen light.
+- **Tested in code only, not yet in a live browser** (these need the ion token, which only the
+  deployed site has):
+  - building fires
+  - summit snapping on real terrain
+  - Sculpt mode on Cesium World Terrain (it was tested in a browser on the no-token flat globe)
+  - the time-of-day tint on Google's photorealistic tiles
+- Sculpted edits disappear when you reload the page.
+- **Buildings and fires:**
   They're built on Cesium OSM Buildings' `cesium#latitude`, `cesium#longitude` and
   `cesium#estimatedHeight` properties. If those are missing, the console says so, and buildings
   still show but won't burn.

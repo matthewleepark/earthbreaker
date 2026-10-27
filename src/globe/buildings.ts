@@ -38,6 +38,7 @@ export class Buildings {
   private photoreal = false;
   private dataNeeded = 0;
   private warned = false;
+  private hidden: Array<{ lon: number; lat: number; radiusM: number }> = [];
 
   static async load(viewer: Viewer): Promise<Buildings | undefined> {
     try {
@@ -82,6 +83,13 @@ export class Buildings {
     return found;
   }
 
+  /** Hides buildings inside these circles (sculpted ground, where they'd float or sink). */
+  hideWithin(circles: Array<{ lon: number; lat: number; radiusM: number }>) {
+    this.hidden = circles;
+    this.applyStyle();
+    this.viewer.scene.requestRender();
+  }
+
   /** Puts every building back to its normal colour and visibility. */
   restore() {
     this.tileset.makeStyleDirty();
@@ -89,9 +97,17 @@ export class Buildings {
   }
 
   private applyStyle() {
+    // Each hidden circle becomes a distance test in degrees (longitude scaled
+    // by cos(latitude) so the circle isn't squashed).
+    const inside = this.hidden.map(({ lon, lat, radiusM }) => {
+      const k = Math.cos((lat * Math.PI) / 180).toFixed(6);
+      const r = (radiusM / 111_320).toFixed(6);
+      return `distance(vec2(\${feature['cesium#longitude']} * ${k}, \${feature['cesium#latitude']}), vec2(${(lon * Number(k)).toFixed(6)}, ${lat.toFixed(6)})) < ${r}`;
+    });
+    const show = this.photoreal ? "false" : inside.length ? `!(${inside.join(" || ")})` : "true";
     // Muted tints by building type; an OSM `colour` tag wins where there is one.
     this.tileset.style = new Cesium3DTileStyle({
-      show: this.photoreal ? "false" : "true",
+      show,
       color: {
         conditions: [
           ["Boolean(${feature['cesium#color']})", "color(${feature['cesium#color']})"],

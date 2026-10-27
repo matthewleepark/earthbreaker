@@ -102,6 +102,25 @@ test("a breached vent sends a big eruption kilometres downhill, toward the lowes
   assert.ok(sim.runoutKm() > 5, `runout ${sim.runoutKm().toFixed(1)} km`);
 });
 
+test("lava never travels past the runout limit", () => {
+  const size = 120;
+  const cell = 150;
+  // A long steady slope it would happily run all the way down.
+  const ground = terrainOf(size, cell, (x) => 2000 - 0.15 * x);
+  const mid = (size / 2) * size + size / 2;
+  const sim = new LavaSim({ size, cellSizeM: cell, ground, ventCells: [mid], rng: seededRandom(4), maxRunoutM: 3000 });
+  for (let t = 0; t < 60; t += 0.1) sim.step(0.1, 300_000);
+  assert.ok(sim.runoutKm() <= 3.0 + cell / 1000, `runout ${sim.runoutKm().toFixed(2)} km`);
+});
+
+function terrainOf(size: number, cell: number, heightAt: (x: number, y: number) => number) {
+  const ground = new Float32Array(size * size);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) ground[r * size + c] = heightAt((c - size / 2) * cell, (size / 2 - r) * cell);
+  }
+  return ground;
+}
+
 test("the same seed gives the same flow", () => {
   const ground = terrain((x, y) => 2000 - 0.3 * Math.hypot(x, y));
   const a = run(ground, 20, 20, 7);

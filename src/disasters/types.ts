@@ -48,6 +48,11 @@ export interface DisasterContext {
   perf: PerformanceMonitor;
   /** OpenStreetMap buildings, when available, so disasters can damage them. */
   buildings?: Buildings;
+  /**
+   * Sculpt-mode height change at a point. Terrain sampling already includes it
+   * with a token; on the flat fallback globe it is the only relief there is.
+   */
+  sculptDelta: (lon: number, lat: number) => number;
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   type Scene,
 } from "cesium";
 import { ashPuffTexture, glowTexture, shockRingTexture } from "./textures";
+import { lightLevel } from "../../globe/timeOfDay";
 
 export interface PlumeOptions {
   vent: Cartesian3;
@@ -150,8 +151,10 @@ export class Plume {
       // Colour: near-black at the vent, lighter grey as it rises, lit orange
       // from below by the vent glow. Alpha fades in quickly and out at the end
       // of life so puffs never pop.
-      const grey = 0.2 + 0.45 * smoothstep(0, 0.85, f) + (own - 0.5) * 0.12;
-      const warm = Math.max(0, 1 - f * 8) * this.glowLevel;
+      // Scaled by the time of day's light: at night the column is dark and
+      // the vent glow and lightning do the lighting.
+      const grey = (0.2 + 0.45 * smoothstep(0, 0.85, f) + (own - 0.5) * 0.12) * lightLevel.ambient;
+      const warm = Math.max(0, 1 - f * 8) * this.glowLevel * (1.6 - 0.6 * lightLevel.ambient);
       // A lightning strike lights the cloud from inside for an instant.
       const zap = this.cloudFlash * smoothstep(0.1, 0.5, f) * (1 - smoothstep(0.8, 1.1, f));
       const alpha = 0.92 * Math.min(1, p.age / 1.0) * (1 - smoothstep(0.72, 1, p.normalizedAge));
@@ -211,7 +214,7 @@ export class Plume {
         Cartesian3.add(desired, Cartesian3.multiplyByScalar(up, vertical, tmp), desired);
         Cartesian3.add(desired, Cartesian3.multiplyByScalar(wind, 0.2, tmp), desired);
         Cartesian3.lerp(p.velocity, desired, 1 - Math.exp(-dt * 3), p.velocity);
-        const grey = 0.3 + 0.12 * p.normalizedAge + (p.mass - 0.5) * 0.08;
+        const grey = (0.3 + 0.12 * p.normalizedAge + (p.mass - 0.5) * 0.08) * lightLevel.ambient;
         const alpha = 0.88 * Math.min(1, p.age / 0.4) * (1 - smoothstep(0.6, 1, p.normalizedAge));
         setColour(p, grey + 0.04, grey + 0.01, grey - 0.02, alpha);
       },

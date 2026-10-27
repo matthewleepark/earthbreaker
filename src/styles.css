@@ -95,8 +95,8 @@ button, input { font: inherit; color: inherit; }
 .view-buttons { display: flex; gap: 6px; margin-top: 10px; }
 .power { display: inline-flex; margin-top: 6px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .power button {
-  height: 26px; padding: 0 9px; border: 0; background: transparent; cursor: pointer;
-  font-size: 12px; font-weight: 600; color: var(--muted);
+  height: 26px; padding: 0 7px; border: 0; background: transparent; cursor: pointer;
+  font-size: 11.5px; font-weight: 600; color: var(--muted);
 }
 .power button + button { border-left: 1px solid var(--line); }
 .power button.active { background: rgba(255, 122, 61, 0.18); color: var(--text); }
@@ -115,6 +115,27 @@ button, input { font: inherit; color: inherit; }
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip.active { border-color: var(--accent); background: rgba(255, 122, 61, 0.14); }
 .chip.icon { width: 32px; padding: 0; }
+
+/* ---------- Left panel tabs ---------- */
+.panel-tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.panel-tabs button {
+  height: 28px; padding: 0 12px; border: 0; background: transparent; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: var(--muted);
+}
+.panel-tabs button + button { border-left: 1px solid var(--line); }
+.panel-tabs button.active { background: rgba(255, 122, 61, 0.18); color: var(--text); }
+.sculpt-tools { grid-template-columns: 1fr 1fr 1fr; }
+.trigger.placing { background: linear-gradient(180deg, #ffd166, #e0a41c); color: #1a1406; }
+
+/* ---------- Time-of-day menu ---------- */
+.time-menu { position: relative; }
+.time-list {
+  position: absolute; top: 40px; right: 0; z-index: 9; width: 340px; padding: 10px;
+  background: #0c0f15; border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+}
+.time-list .segmented { display: flex; }
+.time-list .segmented button { flex: 1; white-space: nowrap; padding: 0 6px; }
 
 /* ---------- Volcanoes menu ---------- */
 .volcano-menu { position: relative; }
@@ -173,7 +194,7 @@ button, input { font: inherit; color: inherit; }
 /* ---------- Details panel (right) ---------- */
 .panel {
   position: absolute; right: 14px; bottom: 14px; z-index: 4;
-  width: 300px; max-height: calc(100% - 130px); overflow-y: auto;
+  width: 300px; max-height: calc(100% - 130px); overflow-y: auto; overflow-x: hidden;
   padding: 12px 14px 14px;
 }
 .sim-details { margin-top: 14px; }
@@ -309,7 +330,7 @@ button, input { font: inherit; color: inherit; }
      panels open from the bottom corners, above the sim bar when it's showing. */
   .banner { top: 172px; left: 14px; width: calc(100% - 28px); }
   /* The preset row scrolls sideways here, which would clip a dropdown inside it. */
-  .volcano-list { position: fixed; top: 128px; left: 14px; right: 14px; width: auto; }
+  .volcano-list, .time-list { position: fixed; top: 128px; left: 14px; right: 14px; width: auto; }
   /* bottom: 40px keeps Cesium's credit line visible underneath. */
   .disaster-panel, .panel { top: auto; bottom: 40px; z-index: 6; max-height: 55%; }
   .disaster-panel:not(.collapsed), .panel:not(.collapsed) { left: 14px; right: 14px; width: auto; }

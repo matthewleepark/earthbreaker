@@ -57,6 +57,8 @@ export interface LavaSimOptions {
   ventCells: number[];
   rng: () => number;
   tuning?: Partial<LavaTuning>;
+  /** Lava can't flow into cells farther than this from the first vent cell. */
+  maxRunoutM?: number;
 }
 
 export class LavaSim {
@@ -75,9 +77,18 @@ export class LavaSim {
   private readonly outflow = new Float32Array(8);
 
   private readonly tuning: LavaTuning;
+  /** 1 where lava may flow, 0 beyond the runout limit. */
+  private readonly open: Uint8Array;
 
-  constructor({ size, cellSizeM, ground, ventCells, rng, tuning }: LavaSimOptions) {
+  constructor({ size, cellSizeM, ground, ventCells, rng, tuning, maxRunoutM = Infinity }: LavaSimOptions) {
     this.tuning = { ...DEFAULT_TUNING, ...tuning };
+    this.open = new Uint8Array(size * size);
+    const vr = Math.floor(ventCells[0] / size);
+    const vc = ventCells[0] % size;
+    const limit = maxRunoutM / cellSizeM;
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) this.open[r * size + c] = Math.hypot(r - vr, c - vc) <= limit ? 1 : 0;
+    }
     this.size = size;
     this.cellSizeM = cellSizeM;
     this.ground = ground;
@@ -131,7 +142,7 @@ export class LavaSim {
           const r = row + dr;
           const c = col + dc;
           outflow[k] = 0;
-          if (r < 0 || r >= size || c < 0 || c >= size) continue;
+          if (r < 0 || r >= size || c < 0 || c >= size || !this.open[r * size + c]) continue;
           const drop = top - (ground[r * size + c] + h[r * size + c]);
           if (drop <= 0) continue;
           const slope = drop / (dist * cell);

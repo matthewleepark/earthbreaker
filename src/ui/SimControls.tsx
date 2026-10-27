@@ -14,7 +14,7 @@ interface Props {
   onToggleSound: () => void;
 }
 
-const SPEEDS = [1, 2, 4];
+const SPEEDS = [1, 2, 3, 4];
 
 /** Bottom bar for a running disaster: transport, speed, timeline and before/after. */
 export function SimControls(props: Props) {

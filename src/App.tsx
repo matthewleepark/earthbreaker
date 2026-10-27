@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import {
-  BillboardCollection,
-  HeadingPitchRange,
-  ParticleSystem,
-  ScreenSpaceEventHandler,
-  ScreenSpaceEventType,
-  type Cartesian2,
-} from "cesium";
+import * as Cesium from "cesium";
+import { ScreenSpaceEventHandler, ScreenSpaceEventType, type Cartesian2 } from "cesium";
 import { GlobeView } from "./globe/GlobeView";
+import type { SculptEdit } from "./globe/sculptShapes";
+import { SculptPanel, defaultTool, type SculptTool } from "./ui/SculptPanel";
+import type { LeftTab } from "./ui/PanelTabs";
+import { TimeMenu } from "./ui/TimeMenu";
 import { CameraRow, LoadingPill, PerformanceRow } from "./ui/LiveReadouts";
 import { formatLatLon, formatMetres } from "./ui/format";
 import {
@@ -95,6 +93,11 @@ export default function App() {
   const [params, setParams] = useState<Params>(disaster.defaults);
   const [vent, setVent] = useState<Vent>();
   const [picking, setPicking] = useState(false);
+  const [leftTab, setLeftTab] = useState<LeftTab>("disasters");
+  const [sculptTool, setSculptTool] = useState<SculptTool>(defaultTool());
+  const [sculptEdits, setSculptEdits] = useState<readonly SculptEdit[]>([]);
+  const [sculptPlacing, setSculptPlacing] = useState(false);
+  const sculptIds = useRef(0);
   const [sim, setSim] = useState<SimState>(IDLE_STATE);
   const [orbiting, setOrbiting] = useState(false);
   const [muted, setMuted] = useState(sound.muted);
@@ -117,7 +120,8 @@ export default function App() {
         sim: simRef.current,
         perf: globe.perf,
         renders: () => appRenders,
-        cesium: { HeadingPitchRange, ParticleSystem, BillboardCollection },
+        cesium: Cesium,
+        globe,
       };
     }
     setGlobeState("ready");
@@ -317,6 +321,60 @@ export default function App() {
     };
   }, [picking]);
 
+  // Sculpt mode: while placing, each click on the ground adds an edit there.
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!sculptPlacing || !globe) return;
+    const { viewer } = globe;
+    viewer.canvas.style.cursor = "crosshair";
+    const handler = new ScreenSpaceEventHandler(viewer.canvas);
+    handler.setInputAction((click: { position: Cartesian2 }) => {
+      const hit = pickGround(viewer, click.position.x, click.position.y);
+      if (!hit) return;
+      const edit: SculptEdit = {
+        id: ++sculptIds.current,
+        kind: sculptTool.kind,
+        lon: hit.lon,
+        lat: hit.lat,
+        radiusM: sculptTool.radiusM,
+        heightM: sculptTool.heightM,
+        seed: Math.random() * 10,
+      };
+      applyEdits([...globe.sculpt.edits, edit]);
+    }, ScreenSpaceEventType.LEFT_CLICK);
+    return () => {
+      handler.destroy();
+      viewer.canvas.style.cursor = "";
+    };
+  }, [sculptPlacing, sculptTool]);
+
+  const applyEdits = useCallback((edits: readonly SculptEdit[]) => {
+    globeRef.current?.sculpt.setEdits(edits);
+    setSculptEdits(edits);
+  }, []);
+
+  const toggleSculptPlacing = useCallback(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    setPicking(false);
+    setSculptPlacing((on) => {
+      // Google's mesh can't be reshaped, so sculpting happens on the terrain view.
+      if (!on && globe.quality === "photoreal") {
+        setQuality(globe, "terrain");
+        setQualityState("terrain");
+      }
+      return !on;
+    });
+  }, []);
+
+  const undoEdit = useCallback(() => applyEdits(sculptEdits.slice(0, -1)), [applyEdits, sculptEdits]);
+  const clearEdits = useCallback(() => applyEdits([]), [applyEdits]);
+  const switchTab = useCallback((tab: LeftTab) => {
+    setLeftTab(tab);
+    setPicking(false);
+    setSculptPlacing(false);
+  }, []);
+
   const runDisaster = useCallback(
     async (runVent: Vent, runParams: Params, seed: number) => {
       const globe = globeRef.current;
@@ -327,7 +385,14 @@ export default function App() {
       lastRunRef.current = { vent: runVent, params: runParams, seed };
       const ground = await sampleGroundHeight(globe, runVent.lon, runVent.lat);
       const instance = await controller.trigger(
-        { viewer: globe.viewer, providerMode: globe.mode, sound, perf: globe.perf, buildings: globe.buildings },
+        {
+          viewer: globe.viewer,
+          providerMode: globe.mode,
+          sound,
+          perf: globe.perf,
+          buildings: globe.buildings,
+          sculptDelta: (lon, lat) => globe.sculpt.deltaAt(lon, lat),
+        },
         disaster,
         { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
         runParams,
@@ -397,6 +462,7 @@ export default function App() {
       if (e.key === "Escape") {
         setHelpOpen(false);
         setPicking(false);
+        setSculptPlacing(false);
         setSearch({ kind: "idle" });
       }
     };
@@ -465,6 +531,7 @@ export default function App() {
             </button>
           ))}
           <VolcanoMenu disabled={!ready} onPick={goToVolcano} />
+          {readyGlobe && <TimeMenu daylight={readyGlobe.daylight} disabled={!ready} />}
           <button
             type="button"
             className={quality === "photoreal" ? "chip active" : "chip"}
@@ -502,7 +569,7 @@ export default function App() {
         </div>
       )}
 
-      {ready && (
+      {ready && leftTab === "disasters" && (
         <DisasterPanel
           disasters={DISASTERS}
           selectedId={disaster.id}
@@ -514,6 +581,21 @@ export default function App() {
           onPickVent={togglePicking}
           busy={sim.status === "preparing"}
           onTrigger={trigger}
+          onTab={switchTab}
+        />
+      )}
+      {ready && leftTab === "sculpt" && (
+        <SculptPanel
+          onTab={switchTab}
+          tool={sculptTool}
+          onTool={setSculptTool}
+          placing={sculptPlacing}
+          onPlace={toggleSculptPlacing}
+          edits={sculptEdits}
+          onUndo={undoEdit}
+          onClear={clearEdits}
+          blocked={simActive ? "Reset the eruption first: its lava has already read the ground." : undefined}
+          photoreal={quality === "photoreal"}
         />
       )}
 
