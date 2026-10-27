@@ -29,19 +29,20 @@ export class GridOverlay {
   private readonly material: Material;
   private readonly cells: HTMLCanvasElement;
   private readonly cellPixels: ImageData;
-  private readonly crust: HTMLCanvasElement;
+  private readonly crust: HTMLCanvasElement | undefined;
   // Cesium only re-uploads a canvas texture when it is handed a different
   // canvas object, so frames alternate between two.
   private readonly frames: [HTMLCanvasElement, HTMLCanvasElement];
   private frame = 0;
 
-  constructor(scene: Scene, size: number, rectangle: Rectangle, rng: () => number) {
+  /** `crust` overlays lava-style cracks and speckles on whatever is painted. */
+  constructor(scene: Scene, size: number, rectangle: Rectangle, rng: () => number, crust = true) {
     this.scene = scene;
     this.size = size;
     this.cells = document.createElement("canvas");
     this.cells.width = this.cells.height = size;
     this.cellPixels = this.cells.getContext("2d")!.createImageData(size, size);
-    this.crust = crustTexture(TEXTURE_SIZE, rng);
+    this.crust = crust ? crustTexture(TEXTURE_SIZE, rng) : undefined;
     this.frames = [makeCanvas(), makeCanvas()];
 
     this.material = Material.fromType("Image", {
@@ -74,9 +75,11 @@ export class GridOverlay {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(this.cells, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-    // Cracks and speckles only where something is painted.
-    ctx.globalCompositeOperation = "source-atop";
-    ctx.drawImage(this.crust, 0, 0);
+    if (this.crust) {
+      // Cracks and speckles only where something is painted.
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.drawImage(this.crust, 0, 0);
+    }
     this.material.uniforms.image = target;
   }
 

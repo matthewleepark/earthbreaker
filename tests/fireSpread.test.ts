@@ -42,6 +42,21 @@ test("the impact ignites fuel within its radius and scorches bare ground", () =>
   assert.equal(f.state[MID * N + MID - 20], UNBURNED, "outside the radius");
 });
 
+test("a patchy ignition lights most fuel near the centre, less at the edge, and spares the crater", () => {
+  const f = fire();
+  f.ignite(MID, MID, 6000, 1000, true);
+  let inner = 0, innerLit = 0, outer = 0, outerLit = 0, crater = 0;
+  f.state.forEach((s, i) => {
+    const d = Math.hypot((i % N) - MID, Math.floor(i / N) - MID) * CELL;
+    if (d < 1000) crater += s === BURNING ? 1 : 0;
+    else if (d < 2500) { inner++; innerLit += s === BURNING ? 1 : 0; }
+    else if (d > 4500 && d < 6000) { outer++; outerLit += s === BURNING ? 1 : 0; }
+  });
+  assert.equal(crater, 0, "nothing burns inside the crater");
+  assert.ok(innerLit / inner > 0.75, `inner ring ${(innerLit / inner).toFixed(2)}`);
+  assert.ok(outerLit / outer > 0.25 && outerLit / outer < 0.65, `outer ring ${(outerLit / outer).toFixed(2)}`);
+});
+
 test("fire spreads outward, then burns out", () => {
   const f = fire();
   f.ignite(MID, MID, 600);

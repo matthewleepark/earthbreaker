@@ -66,15 +66,22 @@ export class FireSpread {
 
   /**
    * The impact's heat: every fuel cell within `radiusM` of (row, col) starts
-   * burning, and bare ground inside it is scorched.
+   * burning, and bare ground inside it is scorched. Cells within `innerM`
+   * are left alone (the crater and its ejecta, which have nothing left to burn).
+   * With `patchy`, fuel only catches with a chance that falls from near
+   * certain close in to about a third at the edge, the way a heat flash
+   * lights some stands and not others; the fire then spreads into the gaps.
    */
-  ignite(row: number, col: number, radiusM: number) {
+  ignite(row: number, col: number, radiusM: number, innerM = 0, patchy = false) {
     const r = radiusM / this.cellSizeM;
+    const inner = innerM / this.cellSizeM;
     const { size } = this;
     for (let y = Math.max(0, Math.floor(row - r)); y <= Math.min(size - 1, Math.ceil(row + r)); y++) {
       for (let x = Math.max(0, Math.floor(col - r)); x <= Math.min(size - 1, Math.ceil(col + r)); x++) {
-        if ((y - row) ** 2 + (x - col) ** 2 > r * r) continue;
+        const d2 = (y - row) ** 2 + (x - col) ** 2;
+        if (d2 > r * r || d2 < inner * inner) continue;
         const i = y * size + x;
+        if (patchy && this.rng() > 1 - 0.65 * (Math.sqrt(d2) / r) ** 1.2) continue;
         if (this.state[i] === UNBURNED) this.light(i);
         else if (this.state[i] === BARE) this.state[i] = SCORCHED;
       }

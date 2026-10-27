@@ -9,11 +9,16 @@ import type { Cesium3DTileset, Viewer } from "cesium";
  *    automatically (Balanced on integrated graphics, few cores, little
  *    memory, or battery power) and can be changed in the details panel.
  *
+ *    While you drag, scroll or the camera is still gliding after, Balanced
+ *    lifts the cap so moving around is as smooth as the screen allows.
+ *
  * 2. While the scene renders continuously (a disaster running, the camera
  *    moving) the frame rate is measured every 1.5 s. Well below the target it
  *    steps a quality level down at once; at the target for two windows in a
  *    row it steps back up (the wait stops it flip-flopping). Each level trades
- *    render resolution, map detail and particle count.
+ *    render resolution, map detail and particle count. A change waits until
+ *    you stop moving the camera, so the picture never blurs or sharpens
+ *    suddenly under your hands.
  */
 interface Level {
   name: string;
@@ -65,6 +70,8 @@ const POWER_KEY = "earthbreaker.power";
 const WINDOW_MS = 1500;
 /** Gaps longer than this mean the scene stopped rendering (idle), not that it's slow. */
 const IDLE_GAP_MS = 250;
+/** How long the camera keeps gliding after the last scroll or drag (Cesium's inertia). */
+const GLIDE_MS = 1200;
 
 export class PerformanceMonitor {
   private readonly viewer: Viewer;
@@ -83,6 +90,12 @@ export class PerformanceMonitor {
   automatic = true;
   /** Most recent measured frame rate while animating. */
   fps?: number;
+  /** The user is moving the camera (or it's still gliding). */
+  private interacting = false;
+  private pressed = false;
+  private lastInput = 0;
+  /** A quality change waiting for the camera to stop. */
+  private pending = false;
 
   constructor(viewer: Viewer, tileset?: Cesium3DTileset, buildings?: Cesium3DTileset) {
     this.viewer = viewer;
@@ -100,6 +113,43 @@ export class PerformanceMonitor {
       });
     }
     viewer.scene.postRender.addEventListener(() => this.onFrame());
+
+    const canvas = viewer.canvas;
+    canvas.addEventListener("pointerdown", () => {
+      this.pressed = true;
+      this.input();
+    });
+    const release = () => {
+      if (!this.pressed) return;
+      this.pressed = false;
+      this.input();
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    canvas.addEventListener("wheel", () => this.input(), { passive: true });
+  }
+
+  private input() {
+    this.lastInput = performance.now();
+    if (!this.interacting) {
+      this.interacting = true;
+      this.updateCap();
+    }
+    // Rendering stops once the camera does, so check back on a timer.
+    setTimeout(() => this.settle(), GLIDE_MS + 50);
+  }
+
+  private settle() {
+    if (!this.interacting || this.pressed || performance.now() - this.lastInput < GLIDE_MS) return;
+    this.interacting = false;
+    this.updateCap();
+    if (this.pending) this.apply();
+  }
+
+  private updateCap() {
+    const lift = this.interacting && this.mode === "balanced";
+    // undefined is Cesium's default: render at the screen's refresh rate.
+    this.viewer.targetFrameRate = (lift ? undefined : this.rules.fps) as number;
   }
 
   /** Multiplier (0.4–1) for how many particles effects should emit. */
@@ -118,8 +168,7 @@ export class PerformanceMonitor {
     this.level = this.rules.start;
     this.goodWindows = 0;
     this.fps = undefined;
-    // undefined is Cesium's default: render at the screen's refresh rate.
-    this.viewer.targetFrameRate = this.rules.fps as number;
+    this.updateCap();
     if (remember) {
       this.automatic = false;
       try {
@@ -156,20 +205,26 @@ export class PerformanceMonitor {
       this.goodWindows = 0;
       if (this.level < this.rules.worst) {
         this.level++;
-        this.apply();
+        this.changeLevel();
       }
     } else if (fps > target * 0.93) {
       if (++this.goodWindows >= 2 && this.level > this.rules.best) {
         this.goodWindows = 0;
         this.level--;
-        this.apply();
+        this.changeLevel();
       }
     } else {
       this.goodWindows = 0;
     }
   }
 
+  private changeLevel() {
+    if (this.interacting) this.pending = true;
+    else this.apply();
+  }
+
   private apply() {
+    this.pending = false;
     const l = this.table[this.level];
     this.viewer.resolutionScale = l.resolution;
     this.viewer.scene.globe.maximumScreenSpaceError = l.globeError;

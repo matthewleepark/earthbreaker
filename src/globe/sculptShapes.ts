@@ -17,12 +17,19 @@ export interface SculptEdit {
   seed: number;
   /** Crater only: how high the rim stands above the surrounding ground. */
   rimM?: number;
+  /**
+   * Crater only: a complex crater's central peak height. When set, the crater
+   * has a flat floor and a central peak instead of a simple bowl.
+   */
+  peakM?: number;
 }
 
 const EARTH_RADIUS_M = 6_371_000;
 const DEG = Math.PI / 180;
 /** A crater's ejecta blanket reaches this many rim radii out. */
 const CRATER_REACH = 2.2;
+/** A complex crater's flat floor reaches this fraction of the rim radius. */
+const COMPLEX_FLOOR = 0.5;
 
 /** How far an edit reaches, as a multiple of its radius. */
 function reach(edit: SculptEdit) {
@@ -37,12 +44,18 @@ export function editDelta(edit: SculptEdit, lon: number, lat: number): number {
   if (d >= reach(edit)) return 0;
   switch (edit.kind) {
     case "crater": {
-      // A bowl falling to full depth at the centre, a raised rim (slightly
-      // irregular) at d = 1, and an ejecta blanket thinning out beyond it.
+      // A raised rim (slightly irregular) at d = 1 with an ejecta blanket
+      // thinning out beyond it. A simple crater is a bowl inside.
       const angle = Math.atan2(dy, dx);
       const rim = (edit.rimM ?? 0) * (1 + 0.15 * Math.sin(5 * angle + edit.seed) + 0.08 * Math.sin(11 * angle + edit.seed * 2));
-      if (d < 1) return -edit.heightM * (1 - d * d) + rim * d ** 4;
-      return rim * ((CRATER_REACH - d) / (CRATER_REACH - 1)) ** 2;
+      if (d >= 1) return rim * ((CRATER_REACH - d) / (CRATER_REACH - 1)) ** 2;
+      if (!edit.peakM) return -edit.heightM * (1 - d * d) + rim * d ** 4;
+      // A complex crater: the floor rebounded after the impact, leaving it
+      // flat out to half the radius with a central peak, and steep walls.
+      const peak = edit.peakM * Math.exp(-((d / 0.17) ** 2)) * (1 + 0.25 * Math.sin(3 * angle + edit.seed * 3));
+      if (d < COMPLEX_FLOOR) return -edit.heightM + peak;
+      const t = (d - COMPLEX_FLOOR) / (1 - COMPLEX_FLOOR);
+      return -edit.heightM * (1 - t ** 1.5) + rim * t ** 4;
     }
     case "peak": {
       // A concave mountain profile, steepest near the top, with a few ridges

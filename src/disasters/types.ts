@@ -1,4 +1,4 @@
-import type { Viewer } from "cesium";
+import type { Cartesian3, Viewer } from "cesium";
 import type { ProviderMode } from "../globe/createGlobe";
 import type { PerformanceMonitor } from "../globe/performance";
 import type { SoundBoard } from "../audio/sound";
@@ -41,6 +41,22 @@ export interface DisasterStatus {
   booms: number;
 }
 
+/** Where a disaster wants the camera this frame: placed at `position`, looking at `target`. */
+export interface CameraShot {
+  position: Cartesian3;
+  target: Cartesian3;
+}
+
+/** A camera view: the point looked at, and the distance, heading and tilt (degrees) to look from. */
+export interface Framing {
+  lon: number;
+  lat: number;
+  heightM: number;
+  range: number;
+  heading: number;
+  pitch: number;
+}
+
 export interface DisasterContext {
   viewer: Viewer;
   providerMode: ProviderMode;
@@ -59,6 +75,12 @@ export interface DisasterContext {
    * separate from the user's Sculpt edits, and cleared when the disaster ends.
    */
   setGroundDamage: (damage: SculptEdit[]) => void;
+  /**
+   * Moves the camera to a new view mid-event (the meteor flies in to its
+   * crater), and makes it the point Orbit circles. Skipped while orbiting or
+   * once the user has moved the camera themselves.
+   */
+  focus: (view: Framing) => void;
 }
 
 /**
@@ -70,11 +92,16 @@ export interface DisasterInstance {
   /** Total length of the event in simulated seconds. */
   readonly duration: number;
   /** Returns a camera view that frames the event, used when it starts. */
-  readonly framing: { lon: number; lat: number; heightM: number; range: number; heading: number; pitch: number };
+  readonly framing: Framing;
   update(elapsed: number, dt: number): void;
   status(): DisasterStatus;
   /** How hard the camera should shake right now, 0–1. */
   shake(): number;
+  /**
+   * A scripted camera (the meteor's chase shot), asked for every frame. The
+   * controller blends into it and drops it as soon as the user takes the camera.
+   */
+  cameraShot?(): CameraShot | undefined;
   /** Hides or shows every effect, for the before/after comparison. */
   setVisible(visible: boolean): void;
   destroy(): void;

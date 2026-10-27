@@ -197,6 +197,7 @@ export default function App() {
       const globe = globeRef.current;
       if (!globe || !selection) return;
       stopOrbit();
+      simRef.current?.releaseCamera();
       setActiveView(which);
       setFlying(true);
       const view = which === "close" ? selection.closeView : selection.view;
@@ -398,6 +399,11 @@ export default function App() {
           buildings: globe.buildings,
           sculptDelta: (lon, lat) => globe.sculpt.deltaAt(lon, lat),
           setGroundDamage: (damage) => globe.sculpt.setDamage(damage),
+          focus: (view) => {
+            if (stopOrbitRef.current || simRef.current?.userHasCamera) return;
+            framingRef.current = view;
+            flyToPoint(globe.viewer, view.lon, view.lat, view.heightM, view);
+          },
         },
         disaster,
         { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
@@ -448,6 +454,7 @@ export default function App() {
     const f = framingRef.current;
     if (!globe || !f) return;
     if (stopOrbitRef.current) return stopOrbit();
+    simRef.current?.releaseCamera();
     globe.viewer.camera.cancelFlight();
     stopOrbitRef.current = startOrbit(globe.viewer, f.lon, f.lat, f.heightM);
     setOrbiting(true);

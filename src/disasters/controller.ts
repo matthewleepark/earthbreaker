@@ -1,6 +1,6 @@
-import { JulianDate, type Clock, type Viewer } from "cesium";
+import { Cartesian3, Ellipsoid, JulianDate, type Clock, type Viewer } from "cesium";
 import type { SoundBoard } from "../audio/sound";
-import type { DisasterContext, DisasterDefinition, DisasterInstance, Metric, Params, Site } from "./types";
+import type { CameraShot, DisasterContext, DisasterDefinition, DisasterInstance, Metric, Params, Site } from "./types";
 
 export type SimStatus = "idle" | "preparing" | "running" | "paused" | "finished";
 
@@ -31,6 +31,8 @@ export const IDLE_STATE: SimState = {
 
 /** Strongest camera shake, as a look-around angle in radians (about 0.6°). */
 const MAX_SHAKE_RAD = 0.011;
+/** Simulated seconds to ease from wherever the camera was into a scripted shot. */
+const SHOT_BLEND_S = 3;
 
 /**
  * Runs one disaster at a time on Cesium's clock. Particle systems already
@@ -55,11 +57,29 @@ export class SimulationController {
   /** The shake applied last frame, undone before the next one so the camera never drifts. */
   private shakeX = 0;
   private shakeY = 0;
+  /** Set when the user grabs the camera during a run; scripted shots and fly-ins then leave it alone. */
+  private userCamera = false;
+  /** The camera when a scripted shot began, and when, for blending into it. */
+  private shotFrom?: { position: Cartesian3; direction: Cartesian3; up: Cartesian3; at: number };
 
   constructor(viewer: Viewer, sound: SoundBoard, onChange: (state: SimState) => void) {
     this.viewer = viewer;
     this.sound = sound;
     this.onChange = onChange;
+    const take = () => this.releaseCamera();
+    viewer.canvas.addEventListener("pointerdown", take);
+    viewer.canvas.addEventListener("wheel", take, { passive: true });
+  }
+
+  /** True once the user has moved the camera during this run. */
+  get userHasCamera(): boolean {
+    return this.userCamera;
+  }
+
+  /** Hands the camera to the user (or to Orbit) for the rest of the run. */
+  releaseCamera() {
+    if (this.instance) this.userCamera = true;
+    this.shotFrom = undefined;
   }
 
   async trigger(ctx: DisasterContext, def: DisasterDefinition, site: Site, params: Params, seed: number) {
@@ -83,6 +103,8 @@ export class SimulationController {
 
     const clock = this.viewer.clock;
     this.instance = instance;
+    this.userCamera = false;
+    this.shotFrom = undefined;
     this.timeBefore = clock.currentTime.clone();
     this.startTime = clock.currentTime.clone();
     this.lastElapsed = 0;
@@ -156,6 +178,9 @@ export class SimulationController {
     instance.update(elapsed, dt);
 
     this.unshake();
+    const shot = this.userCamera ? undefined : instance.cameraShot?.();
+    if (shot) this.aim(shot, elapsed);
+    else this.shotFrom = undefined;
     if (clock.shouldAnimate && !finished) this.applyShake(instance.shake());
 
     if (finished) {
@@ -181,6 +206,39 @@ export class SimulationController {
         booms,
       });
     }
+  }
+
+  /**
+   * Places the camera for a scripted shot, easing in from wherever it was
+   * over SHOT_BLEND_S, with the horizon kept level.
+   */
+  private aim(shot: CameraShot, elapsed: number) {
+    const camera = this.viewer.camera;
+    if (!this.shotFrom) {
+      camera.cancelFlight();
+      this.shotFrom = {
+        position: Cartesian3.clone(camera.positionWC),
+        direction: Cartesian3.clone(camera.directionWC),
+        up: Cartesian3.clone(camera.upWC),
+        at: elapsed,
+      };
+    }
+    const from = this.shotFrom;
+    const t = Math.min(1, Math.max(0, (elapsed - from.at) / SHOT_BLEND_S));
+    const k = t * t * (3 - 2 * t);
+    const position = Cartesian3.lerp(from.position, shot.position, k, new Cartesian3());
+    const look = Cartesian3.normalize(Cartesian3.subtract(shot.target, position, new Cartesian3()), new Cartesian3());
+    const direction = Cartesian3.normalize(Cartesian3.lerp(from.direction, look, k, new Cartesian3()), new Cartesian3());
+    const vertical = Ellipsoid.WGS84.geodeticSurfaceNormal(position, new Cartesian3());
+    const up = Cartesian3.subtract(
+      vertical,
+      Cartesian3.multiplyByScalar(direction, Cartesian3.dot(vertical, direction), new Cartesian3()),
+      new Cartesian3(),
+    );
+    // Looking straight down there's no horizon to level; keep the old up.
+    if (Cartesian3.magnitude(up) < 1e-3) Cartesian3.clone(from.up, up);
+    Cartesian3.normalize(up, up);
+    camera.setView({ destination: position, orientation: { direction, up } });
   }
 
   /** Turns the camera by a small random angle; strength 0–1. */

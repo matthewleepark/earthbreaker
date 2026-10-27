@@ -42,6 +42,17 @@ test("a crater is a bowl with a raised rim and an ejecta blanket", () => {
   assert.ok(editDelta(crater, lonAt(4300), 45) >= 0 && b.east > lonAt(4300), "bounds cover the blanket");
 });
 
+test("a complex crater has a flat floor and a central peak", () => {
+  const crater: SculptEdit = { ...base, kind: "crater", radiusM: 4000, heightM: 600, rimM: 60, peakM: 180 };
+  const lonAt = (m: number) => 10 + m / (111_320 * Math.cos((45 * Math.PI) / 180));
+  const centre = editDelta(crater, 10, 45);
+  assert.ok(centre > -600 + 120, `the peak rises off the floor (${centre.toFixed(0)} m)`);
+  const floor = [1500, 1700, 1900].map((m) => editDelta(crater, lonAt(m), 45));
+  assert.ok(floor.every((h) => Math.abs(h + 600) < 5), `flat floor (${floor.map((h) => h.toFixed(0))})`);
+  assert.ok(editDelta(crater, lonAt(3000), 45) > -600 && editDelta(crater, lonAt(3000), 45) < 0, "walls climb from the floor");
+  assert.ok(editDelta(crater, lonAt(4000), 45) > 40, "the rim stands up");
+});
+
 test("sculpting never changes the volcano catalog", () => {
   const before = JSON.stringify(VOLCANOES);
   const edits: SculptEdit[] = VOLCANOES.map((v, i) => ({ ...base, id: i, kind: "peak", lon: v.lon, lat: v.lat }));

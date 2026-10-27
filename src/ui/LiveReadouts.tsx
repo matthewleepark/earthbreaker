@@ -47,7 +47,7 @@ export function CameraRow({ globe }: { globe: Globe }) {
 
 const POWER_HINTS: Record<PowerMode, string> = {
   smooth: "Up to 60 fps. Best on desktops and gaming laptops.",
-  balanced: "Capped at 30 fps: about half the work, so laptops run cooler and quieter.",
+  balanced: "30 fps, but full speed while you move the camera: about half the work, so laptops run cooler and quieter.",
   saver: "30 fps and lighter effects, for slow computers or battery.",
 };
 

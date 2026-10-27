@@ -125,6 +125,17 @@ export async function createGlobe(container: HTMLElement, ionToken: string | und
   const controller = scene.screenSpaceCameraController;
   controller.minimumZoomDistance = 15;
   controller.maximumZoomDistance = 40_000_000;
+  // Smoother navigation: smaller steps per scroll notch, and a longer glide
+  // after letting go of a drag or a zoom instead of stopping dead.
+  controller.zoomFactor = 3;
+  controller.inertiaZoom = 0.9;
+  controller.inertiaSpin = 0.92;
+  controller.inertiaTranslate = 0.92;
+  // Keep more map tiles in memory (Cesium keeps 100) and load the neighbours
+  // of visible tiles early, so panning and turning show ground that is
+  // already there instead of popping in.
+  scene.globe.tileCacheSize = 1000;
+  scene.globe.preloadSiblings = true;
 
   viewer.camera.setView({ destination: Cartesian3.fromDegrees(-30, 25, 22_000_000) });
 
@@ -166,6 +177,8 @@ async function loadPhotoreal(viewer: Viewer): Promise<Cesium3DTileset> {
     {
       // Default is 16; lower loads finer tiles sooner for sharper close-ups.
       maximumScreenSpaceError: 8,
+      // 768 MB of tiles kept (Cesium keeps 512), so looking back at a place doesn't reload it.
+      cacheBytes: 768 * 1024 * 1024,
       // The camera bumps into mountains instead of passing through them.
       enableCollision: true,
       // Google requires its attribution on screen, not hidden behind a button.

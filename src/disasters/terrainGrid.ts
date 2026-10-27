@@ -77,3 +77,26 @@ export function gridHeight(
   const bottom = ground[i + size] * (1 - fc) + ground[i + size + 1] * fc;
   return top * (1 - fr) + bottom * fr;
 }
+
+/**
+ * Ground heights at a few points, in metres, on the same terms as loadGround:
+ * the terrain model at a fixed level (13, about 40 m between samples) with a
+ * token, or the Sculpt edits on the flat fallback globe. Undefined where the
+ * terrain couldn't be read.
+ */
+export async function groundHeights(
+  ctx: DisasterContext,
+  points: { lon: number; lat: number }[],
+): Promise<(number | undefined)[]> {
+  if (ctx.providerMode !== "ion") return points.map((p) => ctx.sculptDelta(p.lon, p.lat));
+  try {
+    const sampled = await sampleTerrain(
+      ctx.viewer.terrainProvider,
+      13,
+      points.map((p) => Cartographic.fromDegrees(p.lon, p.lat)),
+    );
+    return sampled.map((p) => (Number.isFinite(p.height) ? p.height : undefined));
+  } catch {
+    return points.map(() => undefined);
+  }
+}

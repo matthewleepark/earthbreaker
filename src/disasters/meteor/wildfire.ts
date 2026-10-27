@@ -53,7 +53,7 @@ export class Wildfire {
   ) {
     this.scene = scene;
     this.model = model;
-    this.overlay = new GridOverlay(scene, model.size, rectangle, rng);
+    this.overlay = new GridOverlay(scene, model.size, rectangle, rng, false);
     this.cellCentre = cellCentre;
     this.up = up;
     this.drift = drift;
@@ -131,20 +131,25 @@ export class Wildfire {
     const state = this.model.state;
     const t = this.clock;
     this.overlay.render((i, px, o) => {
+      // A fixed 0–1 value per cell, so neighbouring cells differ.
+      const h = cellHash(i);
       switch (state[i]) {
         case BURNING: {
-          // Flickering orange, a little different per cell.
-          const f = 0.5 + 0.5 * Math.sin(t * 9 + i * 0.37);
-          px[o] = 255;
-          px[o + 1] = 90 + 80 * f;
-          px[o + 2] = 20;
-          px[o + 3] = 225;
+          // Glowing embers and flame patches over charring ground: from deep
+          // red to yellow-orange, flickering, never one flat colour.
+          const f = 0.5 + 0.5 * Math.sin(t * (6 + 5 * h) + i * 0.37);
+          const e = 0.35 + 0.45 * h + 0.2 * f;
+          px[o] = 70 + 185 * e;
+          px[o + 1] = 22 + 120 * e * e;
+          px[o + 2] = 8 + 30 * e * e * e;
+          px[o + 3] = 230;
           break;
         }
         case BURNED:
-          px[o] = 26;
-          px[o + 1] = 22;
-          px[o + 2] = 20;
+          // Char and grey ash.
+          px[o] = 22 + 30 * h * h;
+          px[o + 1] = 19 + 27 * h * h;
+          px[o + 2] = 17 + 24 * h * h;
           px[o + 3] = 215;
           break;
         case SCORCHED:
@@ -182,4 +187,9 @@ export class Wildfire {
     this.scene.primitives.remove(this.flames);
     this.scene.primitives.remove(this.smoke);
   }
+}
+
+function cellHash(i: number): number {
+  const x = Math.sin(i * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
 }

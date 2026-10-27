@@ -62,30 +62,53 @@ visualisations, **not** scientific forecasts.
 - Settings: rock diameter (30–800 m), speed (11–40 km/s), entry angle, approach direction,
   duration, and wind direction and strength.
 - The phases:
-  - **Incoming:** a fireball drops out of the sky along the chosen angle and direction, with a
-    plasma glow and a smoke trail behind it.
+  - **Incoming:** the camera eases up to the top of the meteor's path and rides down just ahead
+    of it, looking back up at it against the sky. You see:
+    - the rock itself, a lumpy, faceted 3D boulder tumbling as it falls, its crust glowing
+      through a network of cracks;
+    - a flickering blue-white core and a wide orange glow around it;
+    - sparks of molten rock shed into its wake;
+    - a long ionised trail fading from yellow to red, and a dusty smoke train that hangs in the
+      sky afterwards.
+
+    Part-way down it flares as a few pieces break off and fall on their own paths. The camera
+    then slows and turns toward the ground, the meteor streaks past it, and the land lights up as
+    it comes down. It falls at its real speed: path length ÷ speed, so a shallow or slow entry
+    takes longer. Touch the map at any point to take the camera back.
   - **Impact:** a flash, a blast-wave ring, a fireball, a deep boom, a hard camera shake and a
-    burst of debris thrown out over the land.
-  - **The crater:** the ground is dug into a bowl with a raised, uneven rim, plus a few smaller
-    secondary craters around it. Freshly melted rock glows in the floor and cools over about 30 s,
-    and grey-brown ejecta covers the land around it.
-  - **Firestorm:** fires start in a ring around the impact and spread across the land, faster
-    uphill and downwind. Burning ground flickers orange under flames and drifting smoke, then
-    turns to charcoal. A dust column rises over the crater.
+    burst of debris thrown out over the land. Then the camera flies down to look into the crater.
+  - **The crater:**
+    - The ground is dug into a bowl with a raised, uneven rim. Big impacts make a complex crater:
+      a flat floor, steep walls and a central peak where the floor rebounded.
+    - Smaller craters mark where the broken-off pieces landed.
+    - Melt pools glow among the broken rock of the floor and cool over about 30 s.
+    - Grey-brown ejecta covers the land around the crater, streaked with bright rays. For a
+      shallow entry it's thrown farther downrange.
+  - **The meteorite:** the main mass rests partly buried in the crater floor, a little downrange
+    of the centre, with broken fragments scattered beyond it. It glows white-orange, then cools
+    until only its cracks glow, with steam rising off it, and ends up dark.
+  - **Firestorm:** the heat flash sets patches of land alight in a ring around the impact. The
+    fire then spreads across the land, faster uphill and downwind, as glowing embers and flames
+    under drifting smoke, leaving black char and ash. The crater and the thick ejecta near it
+    don't burn.
   - **Aftermath:** the last fires burn out and the smoke thins.
 - Crater size comes from the impact-scaling equations of Collins, Melosh & Marcus (2005), the
   ones behind the Earth Impact Effects Program (`disasters/meteor/scaling.ts`). As a check, a 50 m
   iron rock at 12.8 km/s (roughly what made Meteor Crater in Arizona) gives a crater 1.55 km wide
   with a 44 m rim. The real one is 1.19 km wide with a rim of about 45 m. These formulas are only
-  good to tens of percent, and a test keeps the estimate in that range. Big rocks make complex craters, which are wider and shallower for their size.
+  good to tens of percent, and a test keeps the estimate in that range.
 - The crater is a real change to the terrain, using the same tile rebuilding as Sculpt mode, so it
   shows at the right depth when you fly down into it. Before/After switches it off and on, and
   Reset fills it back in.
 - **Buildings:** buildings near the crater are destroyed outright, ones inside the blast radius
   collapse, and ones the fire reaches burn and char. The details panel counts them.
-- The details panel shows the impact energy in megatons of TNT, the crater's width and depth,
-  burned area, area still burning and buildings hit. On real terrain, an impact at or below sea
-  level is marked as an ocean impact.
+- **Details panel:**
+  - the impact energy in megatons of TNT;
+  - the crater's width and depth;
+  - the meteorite's size, number of fragments and how hot it still is;
+  - the area burned, the area still burning, and buildings hit.
+
+  On real terrain, an impact at or below sea level is marked as an ocean impact.
 - Every impact is labelled as hypothetical: no known asteroid is on course to hit anywhere.
 - The meteor runs in the terrain view, since Google's 3D mesh can't be reshaped into a crater.
 
@@ -213,6 +236,8 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
 - **Power modes** (details panel → Rendering):
   - **Smooth:** up to 60 fps.
   - **Balanced:** capped at 30 fps, about half the GPU work, so laptops stay cooler and quieter.
+    While you drag, scroll or the camera is still gliding afterwards, the cap lifts so moving
+    around is as smooth as the screen allows.
   - **Saver:** 30 fps with lower resolution and fewer particles.
 
   The mode is picked automatically on first visit: Balanced when the computer looks low-powered
@@ -225,6 +250,14 @@ To build for Pages locally: `BASE_PATH=/earthbreaker/ npm run build`. In PowerSh
   back up. Each level lowers render resolution (down to 60%), map tile detail, and the number of
   smoke particles (down to 45%).
   The details panel shows the current frame rate and quality level under **Rendering**.
+  A quality change waits until you stop moving the camera, so the picture doesn't suddenly blur
+  or sharpen mid-drag.
+- **Smooth navigation:**
+  - Each scroll notch zooms a smaller step.
+  - Drags and zooms glide to a stop instead of stopping dead.
+  - Cesium keeps up to 1,000 terrain tiles in memory (10 times its default) and 768 MB of
+    photorealistic tiles, and loads the tiles next to the visible ones early. Panning, turning
+    and coming back to a place show ground that's already loaded, instead of tiles popping in.
 - The plume uses fewer, larger smoke puffs. Overlapping see-through sprites are the main GPU cost.
 - Debris and dust use fixed pools of billboards that are reused, so nothing is allocated mid-eruption.
 - The lava texture is 512 px and repaints about 5 times a second.
@@ -299,13 +332,13 @@ src/
   disasters/controller.ts     Clock-driven run/pause/speed/reset for any disaster
   disasters/registry.ts       Disasters shown in the panel
   disasters/volcano/          Eruption timeline, plume, lava model and lava texture
-  disasters/meteor/           Impact timeline, entry fireball, crater scaling, wildfire spread
+  disasters/meteor/           Impact timeline, entry and chase camera, meteorite rock, crater scaling, wildfire
   disasters/buildingFires.ts  Building burn/collapse shared by lava and impacts
   disasters/gridOverlay.ts    Ground texture painted from a simulation grid (lava, fire, crater)
   disasters/terrainGrid.ts    Samples terrain heights into a grid for a simulation
   data/places.ts, volcanoes.ts  Presets, and known volcanoes used for the real/fictional label
   ui/                         Disaster panel and simulation bar
-tests/                        Lava model, sculpt, fire spread and impact scaling tests
+tests/                        Lava model, sculpt, fire spread, impact scaling and rock mesh tests
 ```
 
 ## Data sources and attribution
@@ -357,7 +390,12 @@ tests/                        Lava model, sculpt, fire spread and impact scaling
     150 m rock), fire spread, Before/After and Reset. Building damage needs a token, so it hasn't
     been seen working.
   - Only the crater size comes from published formulas. The entry fireball, blast ring, ejecta,
-    fire spread and building damage are simplified effects.
+    fire spread and building damage are simplified effects. The central peak's height (30% of the
+    crater depth) is a rule of thumb.
+  - A rock this fast would mostly melt or vaporise on impact. The main mass, about half the
+    meteor's width, is kept in the crater so you can see it. The details panel says so.
+  - The chase camera, the meteorite and the reworked fire were seen working in the local test
+    (flat no-token globe, software rendering at 5–13 fps), not yet on real terrain.
   - Fires spread on a 128 × 128 grid up to 80 km across. Land counts as fuel when it's above sea
     level and below a tree line that drops with latitude. There's no land-cover data, so deserts,
     bare rock and cities burn like forest.
