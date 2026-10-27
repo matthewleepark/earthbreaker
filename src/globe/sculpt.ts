@@ -17,20 +17,26 @@ import {
   type TilingScheme,
   type Viewer,
 } from "cesium";
-import { editBounds, totalDelta, type SculptEdit } from "./sculptShapes";
+import { editBounds, editReachM, totalDelta, type SculptEdit } from "./sculptShapes";
 import type { Buildings } from "./buildings";
 
 /**
- * Sculpt mode's state: the list of edits and the terrain that shows them.
+ * Changes to the ground and the terrain that shows them, in two layers:
+ * the user's Sculpt-mode edits, and damage from a running disaster (a meteor's
+ * craters), which Reset clears without touching the user's edits.
+ *
  * Each change swaps in a fresh SculptedTerrainProvider (the globe reloads its
- * tiles), and buildings standing on sculpted ground are hidden, since they
+ * tiles), and buildings standing on changed ground are hidden, since they
  * would otherwise float or sink.
  */
 export class Sculpt {
   private readonly viewer: Viewer;
   private readonly base: TerrainProvider;
   private readonly buildings?: Buildings;
+  /** The user's Sculpt-mode edits. */
   edits: readonly SculptEdit[] = [];
+  /** Ground damage from the current disaster. */
+  damage: readonly SculptEdit[] = [];
 
   constructor(viewer: Viewer, base: TerrainProvider, buildings?: Buildings) {
     this.viewer = viewer;
@@ -40,16 +46,26 @@ export class Sculpt {
 
   setEdits(edits: readonly SculptEdit[]) {
     this.edits = edits;
-    this.viewer.terrainProvider = edits.length
-      ? (new SculptedTerrainProvider(this.base, edits) as unknown as TerrainProvider)
-      : this.base;
-    this.buildings?.hideWithin(edits.map((e) => ({ lon: e.lon, lat: e.lat, radiusM: e.radiusM })));
-    this.viewer.scene.requestRender();
+    this.apply();
   }
 
-  /** The sculpted height change at a point, in metres. */
+  setDamage(damage: readonly SculptEdit[]) {
+    this.damage = damage;
+    this.apply();
+  }
+
+  /** The height change at a point from both layers, in metres. */
   deltaAt(lon: number, lat: number): number {
-    return totalDelta(this.edits, lon, lat);
+    return totalDelta(this.edits, lon, lat) + totalDelta(this.damage, lon, lat);
+  }
+
+  private apply() {
+    const all = [...this.edits, ...this.damage];
+    this.viewer.terrainProvider = all.length
+      ? (new SculptedTerrainProvider(this.base, all) as unknown as TerrainProvider)
+      : this.base;
+    this.buildings?.hideWithin(all.map((e) => ({ lon: e.lon, lat: e.lat, radiusM: editReachM(e) })));
+    this.viewer.scene.requestRender();
   }
 }
 

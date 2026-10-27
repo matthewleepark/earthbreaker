@@ -56,6 +56,39 @@ visualisations, **not** scientific forecasts.
   - Calderas and lava lakes keep their listed point.
   - Every volcano also works as a link, e.g. `?place=fuji` or `?place=vesuvius`.
 
+**Second disaster: meteor impact (done)**
+
+- Pick an impact point the same way as a vent, then press Trigger. Nothing falls until you do.
+- Settings: rock diameter (30–800 m), speed (11–40 km/s), entry angle, approach direction,
+  duration, and wind direction and strength.
+- The phases:
+  - **Incoming:** a fireball drops out of the sky along the chosen angle and direction, with a
+    plasma glow and a smoke trail behind it.
+  - **Impact:** a flash, a blast-wave ring, a fireball, a deep boom, a hard camera shake and a
+    burst of debris thrown out over the land.
+  - **The crater:** the ground is dug into a bowl with a raised, uneven rim, plus a few smaller
+    secondary craters around it. Freshly melted rock glows in the floor and cools over about 30 s,
+    and grey-brown ejecta covers the land around it.
+  - **Firestorm:** fires start in a ring around the impact and spread across the land, faster
+    uphill and downwind. Burning ground flickers orange under flames and drifting smoke, then
+    turns to charcoal. A dust column rises over the crater.
+  - **Aftermath:** the last fires burn out and the smoke thins.
+- Crater size comes from the impact-scaling equations of Collins, Melosh & Marcus (2005), the
+  ones behind the Earth Impact Effects Program (`disasters/meteor/scaling.ts`). As a check, a 50 m
+  iron rock at 12.8 km/s (roughly what made Meteor Crater in Arizona) gives a crater 1.55 km wide
+  with a 44 m rim. The real one is 1.19 km wide with a rim of about 45 m. These formulas are only
+  good to tens of percent, and a test keeps the estimate in that range. Big rocks make complex craters, which are wider and shallower for their size.
+- The crater is a real change to the terrain, using the same tile rebuilding as Sculpt mode, so it
+  shows at the right depth when you fly down into it. Before/After switches it off and on, and
+  Reset fills it back in.
+- **Buildings:** buildings near the crater are destroyed outright, ones inside the blast radius
+  collapse, and ones the fire reaches burn and char. The details panel counts them.
+- The details panel shows the impact energy in megatons of TNT, the crater's width and depth,
+  burned area, area still burning and buildings hit. On real terrain, an impact at or below sea
+  level is marked as an ocean impact.
+- Every impact is labelled as hypothetical: no known asteroid is on course to hit anywhere.
+- The meteor runs in the terrain view, since Google's 3D mesh can't be reshaped into a crater.
+
 **Time of day (done)**
 
 - The **☀ Noon ▾** menu in the top bar switches the current view between **Dawn**, **Noon**, **Dusk**
@@ -101,7 +134,7 @@ visualisations, **not** scientific forecasts.
 - Sharper rendering in both modes: finer terrain tiles, full pixel density on high-DPI screens, and
   anti-aliasing.
 
-Not started yet: buildings and other disasters. See [Roadmap](#roadmap).
+Not started yet: earthquake and landslide. See [Roadmap](#roadmap).
 
 ## Setup
 
@@ -250,7 +283,7 @@ What this model is and isn't:
 - Particle motion, lightning timing and sound use `Math.random`, so only the lava is exactly
   repeatable with a seed. The rest is only similar each time.
 - The blast ring, fireball, surges and shake are cinematic effects, not modelled physics.
-- **Building damage** (`volcano/fires.ts`) is a simple rule, not an engineering model:
+- **Building damage** (`disasters/buildingFires.ts`) is a simple rule, not an engineering model:
   - A building is "reached" when the model has at least 0.3 m of lava in its cell.
   - It's "buried" when the lava there is deeper than 2.5 m, or 40% of the building's height.
   - Only buildings in map tiles that have loaded are counted, so zoom in on a town to see all of
@@ -264,11 +297,15 @@ src/
   globe/                      Map provider setup, camera flights and orbit, markers, picking
   disasters/types.ts          The shared Disaster interface every disaster implements
   disasters/controller.ts     Clock-driven run/pause/speed/reset for any disaster
-  disasters/registry.ts       Disasters shown in the panel (only the eruption is built so far)
+  disasters/registry.ts       Disasters shown in the panel
   disasters/volcano/          Eruption timeline, plume, lava model and lava texture
+  disasters/meteor/           Impact timeline, entry fireball, crater scaling, wildfire spread
+  disasters/buildingFires.ts  Building burn/collapse shared by lava and impacts
+  disasters/gridOverlay.ts    Ground texture painted from a simulation grid (lava, fire, crater)
+  disasters/terrainGrid.ts    Samples terrain heights into a grid for a simulation
   data/places.ts, volcanoes.ts  Presets, and known volcanoes used for the real/fictional label
   ui/                         Disaster panel and simulation bar
-tests/lavaSim.test.ts         Lava model tests on synthetic terrain
+tests/                        Lava model, sculpt, fire spread and impact scaling tests
 ```
 
 ## Data sources and attribution
@@ -314,6 +351,20 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 - See [Verified on the deployed site](#verified-on-the-deployed-site) for what has been checked
   with real terrain. Anything not listed there hasn't been verified in a live browser.
 - Sculpted edits disappear when you reload the page.
+- **Meteor impact:**
+  - It hasn't been checked on the deployed site with real terrain yet. It was tested locally on the
+    flat no-token globe: the phases, crater depth (552 m deep with a 98 m rim for the default
+    150 m rock), fire spread, Before/After and Reset. Building damage needs a token, so it hasn't
+    been seen working.
+  - Only the crater size comes from published formulas. The entry fireball, blast ring, ejecta,
+    fire spread and building damage are simplified effects.
+  - Fires spread on a 128 × 128 grid up to 80 km across. Land counts as fuel when it's above sea
+    level and below a tree line that drops with latitude. There's no land-cover data, so deserts,
+    bare rock and cities burn like forest.
+  - Ocean impacts dig a crater on the sea floor, but there's no tsunami or water displacement.
+  - When the crater appears, every terrain tile reloads. Under the impact fireball this is usually
+    hidden, but on a slow computer the ground can flash blank for a moment.
+  - Rocks bigger than about 800 m, and air bursts that never reach the ground, aren't modelled.
 - **Buildings and fires:**
   They're built on Cesium OSM Buildings' `cesium#latitude`, `cesium#longitude` and
   `cesium#estimatedHeight` properties. If those are missing, the console says so, and buildings
@@ -349,8 +400,7 @@ checks that passed are listed. Sound wasn't checked, because the test browser ha
   - At Night, lightning reads clearly against the dark sky.
   - Google's photorealistic tiles take the dark night tint.
 - **Sculpt:**
-  - It's unavailable while an eruption runs ("Reset the eruption first"), and available again
-    after Reset.
+  - It's unavailable while an eruption runs, and available again after Reset.
   - Spawn peak, raise and lower changed the real terrain heights. Undo and Clear removed them,
     and the satellite imagery draped over the new shapes (not a white sheet).
 
@@ -364,4 +414,4 @@ Taken from the project blueprint. The eruption was moved ahead of buildings on r
 4. ~~Simulation controls: pause, resume, reset, timeline, before/after~~
 5. ~~Environment: 3D buildings (Cesium OSM Buildings / Google Photorealistic 3D Tiles)~~; procedural settlements where there's no building data are still to do
 6. Polish: lighting, camera work, performance
-7. More disasters: meteor impact, earthquake, landslide
+7. More disasters: ~~meteor impact~~, earthquake, landslide

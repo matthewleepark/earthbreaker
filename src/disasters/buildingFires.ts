@@ -1,15 +1,17 @@
 import { BillboardCollection, Cartesian3, Color, type Billboard, type Scene } from "cesium";
-import type { BuildingRef, Buildings } from "../../globe/buildings";
-import type { LavaView } from "./lavaProtocol";
-import { ashPuffTexture, glowTexture } from "./textures";
+import type { BuildingRef, Buildings } from "../globe/buildings";
+import { ashPuffTexture, glowTexture } from "./volcano/textures";
 
-/** Lava at least this thick counts as reaching a building. */
-const CONTACT_M = 0.3;
+/**
+ * What a disaster is doing to a building right now:
+ * "burn" sets it on fire; "bury" sets it on fire and collapses it once it has
+ * burned; "obliterate" removes it at once (inside an impact crater).
+ */
+export type Hazard = "none" | "burn" | "bury" | "obliterate";
+
 /** Burning, then charred; buried buildings collapse at the end. */
 const BURN_S = 7;
 const COLLAPSE_AT_S = 8;
-/** Lava deeper than this (or 40% of the building's height) buries it. */
-const BURY_M = 2.5;
 const CHECK_EVERY_S = 0.25;
 const MAX_FLAMES = 160;
 const MAX_SMOKE = 320;
@@ -41,17 +43,17 @@ interface Smoke {
 }
 
 /**
- * Sets buildings on fire where the lava model's flows reach them. The
- * buildings are real OpenStreetMap footprints (globe/buildings.ts); the
- * contact test is the lava model's thickness in the building's cell. In
- * terrain mode the building itself glows, chars and (if buried) collapses; in
- * photoreal mode Google's mesh can't be recoloured, so the flames and smoke
- * carry the effect.
+ * Damages real OpenStreetMap buildings (globe/buildings.ts) where a disaster
+ * reaches them. Each disaster supplies a `hazard` test (lava thickness in the
+ * building's cell, a crater's radius, a wildfire grid...) and this class does
+ * the rest. In terrain mode the building itself glows, chars and (if buried)
+ * collapses; in photoreal mode Google's mesh can't be recoloured, so the
+ * flames and smoke carry the effect.
  */
 export class BuildingFires {
   private readonly scene: Scene;
   private readonly buildings: Buildings;
-  private readonly sim: () => LavaView | undefined;
+  private readonly hazard: (ref: BuildingRef) => Hazard;
   private readonly rect: { west: number; south: number; east: number; north: number };
   private readonly groundAt: (lon: number, lat: number) => number;
   private readonly up: Cartesian3;
@@ -73,8 +75,8 @@ export class BuildingFires {
     scene: Scene,
     buildings: Buildings,
     opts: {
-      sim: () => LavaView | undefined;
-      /** Lava grid bounds in degrees. */
+      hazard: (ref: BuildingRef) => Hazard;
+      /** The area the disaster can reach, in degrees. */
       rect: { west: number; south: number; east: number; north: number };
       groundAt: (lon: number, lat: number) => number;
       up: Cartesian3;
@@ -82,7 +84,7 @@ export class BuildingFires {
   ) {
     this.scene = scene;
     this.buildings = buildings;
-    this.sim = opts.sim;
+    this.hazard = opts.hazard;
     this.rect = opts.rect;
     this.groundAt = opts.groundAt;
     this.up = opts.up;
@@ -102,10 +104,9 @@ export class BuildingFires {
     if (dt <= 0) return;
     this.clock += dt;
     this.sinceCheck += dt;
-    const sim = this.sim();
-    if (sim && this.sinceCheck >= CHECK_EVERY_S) {
+    if (this.sinceCheck >= CHECK_EVERY_S) {
       this.sinceCheck = 0;
-      this.findNewFires(sim);
+      this.findNewFires();
     }
 
     for (const b of this.burning.values()) {
@@ -169,24 +170,34 @@ export class BuildingFires {
     }
   }
 
-  private findNewFires(sim: LavaView) {
+  private findNewFires() {
     const { west, south, east, north } = this.rect;
-    const n = sim.size;
     for (const ref of this.buildings.within(west, south, east, north)) {
-      if (this.burning.has(ref.feature)) continue;
-      const col = Math.floor(((ref.lon - west) / (east - west)) * n);
-      const row = Math.floor(((north - ref.lat) / (north - south)) * n);
-      if (col < 0 || row < 0 || col >= n || row >= n) continue;
-      const lava = sim.thickness[row * n + col];
-      if (lava < CONTACT_M) continue;
+      const existing = this.burning.get(ref.feature);
+      if (existing) {
+        // A burning building can still end up buried (lava keeps thickening).
+        if (!existing.buried && this.hazard(ref) === "bury") existing.buried = true;
+        continue;
+      }
+      const hazard = this.hazard(ref);
+      if (hazard === "none") continue;
       const ground = this.groundAt(ref.lon, ref.lat);
+      const base = Cartesian3.fromDegrees(ref.lon, ref.lat, ground + 2);
+      if (hazard === "obliterate") {
+        // Gone at once: no fire, just a burst of dust where it stood.
+        this.burning.set(ref.feature, {
+          ref, since: this.clock - COLLAPSE_AT_S, base, roof: base, smokeClock: Infinity, buried: true, counted: false,
+        });
+        this.reached++;
+        continue;
+      }
       const b: Burning = {
         ref,
         since: this.clock,
-        base: Cartesian3.fromDegrees(ref.lon, ref.lat, ground + 2),
+        base,
         roof: Cartesian3.fromDegrees(ref.lon, ref.lat, ground + ref.heightM),
         smokeClock: Math.random() * 0.4,
-        buried: lava > Math.min(BURY_M, ref.heightM * 0.4),
+        buried: hazard === "bury",
         counted: false,
       };
       const flame = this.freeFlames.pop();
@@ -198,13 +209,6 @@ export class BuildingFires {
       }
       this.burning.set(ref.feature, b);
       this.reached++;
-    }
-    // A buried building's lava may keep thickening after it caught fire.
-    for (const b of this.burning.values()) {
-      if (b.buried) continue;
-      const col = Math.floor(((b.ref.lon - west) / (east - west)) * n);
-      const row = Math.floor(((north - b.ref.lat) / (north - south)) * n);
-      if (sim.thickness[row * n + col] > Math.min(BURY_M, b.ref.heightM * 0.4)) b.buried = true;
     }
   }
 

@@ -75,14 +75,22 @@ export const DisasterPanel = memo(function DisasterPanel(props: Props) {
       <section className="vent">
         <div className="vent-row">
           <div>
-            <span className="eyebrow">Vent</span>
+            <span className="eyebrow">{selected.siteLabel}</span>
             <strong>{vent ? vent.name : "None chosen"}</strong>
           </div>
           <button type="button" className={picking ? "chip active" : "chip"} onClick={onPickVent}>
             {picking ? "Click the map…" : "Pick on map"}
           </button>
         </div>
-        {vent && <RealismNote vent={vent} />}
+        {vent && selected.siteNote && (
+          <p className="realism fictional">
+            <b>{selected.siteNote.title}</b> {selected.siteNote.text}
+          </p>
+        )}
+        {vent && !selected.siteNote && <RealismNote vent={vent} />}
+        {vent && selected.needsTerrain && (
+          <p className="fine">Runs in the terrain view: Google's 3D mesh can't be reshaped into a crater.</p>
+        )}
         {!vent && <p className="fine">Fly to a place or pick a spot on the map first.</p>}
       </section>
 

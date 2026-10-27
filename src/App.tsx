@@ -383,6 +383,11 @@ export default function App() {
       resetSim();
       setPicking(false);
       lastRunRef.current = { vent: runVent, params: runParams, seed };
+      // A disaster that reshapes the ground runs on the terrain view.
+      if (disaster.needsTerrain && globe.quality === "photoreal") {
+        setQuality(globe, "terrain");
+        setQualityState("terrain");
+      }
       const ground = await sampleGroundHeight(globe, runVent.lon, runVent.lat);
       const instance = await controller.trigger(
         {
@@ -392,6 +397,7 @@ export default function App() {
           perf: globe.perf,
           buildings: globe.buildings,
           sculptDelta: (lon, lat) => globe.sculpt.deltaAt(lon, lat),
+          setGroundDamage: (damage) => globe.sculpt.setDamage(damage),
         },
         disaster,
         { name: runVent.name, lon: runVent.lon, lat: runVent.lat, heightM: ground ?? 0 },
@@ -536,15 +542,18 @@ export default function App() {
             type="button"
             className={quality === "photoreal" ? "chip active" : "chip"}
             onClick={toggleQuality}
-            // Google's mesh can't show sculpted ground, so it stays off while there are edits.
-            disabled={!ready || !photorealAvailable || sculptEdits.length > 0}
+            // Google's mesh can't show reshaped ground, so it stays off while
+            // there are sculpt edits or a crater-making disaster is running.
+            disabled={!ready || !photorealAvailable || sculptEdits.length > 0 || (simActive && !!disaster.needsTerrain)}
             aria-pressed={quality === "photoreal"}
             title={
               !photorealAvailable
                 ? "Photorealistic 3D needs a working Cesium ion token"
                 : sculptEdits.length > 0
                   ? "Clear your sculpt edits to use photorealistic 3D: Google's mesh can't be reshaped"
-                  : "Switch between photorealistic 3D (Google) and terrain with satellite imagery"
+                  : simActive && disaster.needsTerrain
+                    ? "Reset the impact to use photorealistic 3D: Google's mesh can't show the crater"
+                    : "Switch between photorealistic 3D (Google) and terrain with satellite imagery"
             }
           >
             Photoreal 3D
@@ -597,7 +606,7 @@ export default function App() {
           edits={sculptEdits}
           onUndo={undoEdit}
           onClear={clearEdits}
-          blocked={simActive ? "Reset the eruption first: its lava has already read the ground." : undefined}
+          blocked={simActive ? "Reset the disaster first: it has already read the ground." : undefined}
           photoreal={quality === "photoreal"}
         />
       )}

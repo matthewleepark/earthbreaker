@@ -30,6 +30,18 @@ test("the bounds contain the whole footprint", () => {
   assert.equal(editDelta({ ...base, kind: "peak" }, b.east + 0.001, 45), 0);
 });
 
+test("a crater is a bowl with a raised rim and an ejecta blanket", () => {
+  const crater: SculptEdit = { ...base, kind: "crater", radiusM: 2000, heightM: 500, rimM: 80 };
+  const lonAt = (m: number) => 10 + m / (111_320 * Math.cos((45 * Math.PI) / 180));
+  assert.ok(Math.abs(editDelta(crater, 10, 45) + 500) < 1, "full depth at the centre");
+  assert.ok(editDelta(crater, lonAt(1000), 45) < 0, "still below ground halfway out");
+  assert.ok(editDelta(crater, lonAt(2000), 45) > 40, "the rim stands up");
+  assert.ok(editDelta(crater, lonAt(3000), 45) > 0, "ejecta beyond the rim");
+  assert.equal(editDelta(crater, lonAt(4500), 45), 0, "nothing beyond 2.2 rim radii");
+  const b = editBounds(crater);
+  assert.ok(editDelta(crater, lonAt(4300), 45) >= 0 && b.east > lonAt(4300), "bounds cover the blanket");
+});
+
 test("sculpting never changes the volcano catalog", () => {
   const before = JSON.stringify(VOLCANOES);
   const edits: SculptEdit[] = VOLCANOES.map((v, i) => ({ ...base, id: i, kind: "peak", lon: v.lon, lat: v.lat }));

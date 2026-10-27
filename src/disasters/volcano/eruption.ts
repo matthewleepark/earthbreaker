@@ -1,9 +1,10 @@
-import { Cartesian3, Cartographic, Rectangle, sampleTerrain } from "cesium";
+import { Cartesian3, Rectangle } from "cesium";
+import { gridHeight, loadGround } from "../terrainGrid";
 import type { DisasterContext, DisasterDefinition, DisasterInstance, DisasterStatus, Metric, Params, Site } from "../types";
 import { seededRandom } from "../random";
 import { breachVent } from "./lavaSim";
 import type { LavaRequest, LavaSnapshot, LavaView } from "./lavaProtocol";
-import { BuildingFires } from "./fires";
+import { BuildingFires } from "../buildingFires";
 import { LavaLayer } from "./lavaLayer";
 import { Plume } from "./plume";
 import { Debris } from "./debris";
@@ -39,6 +40,7 @@ export const volcanicEruption: DisasterDefinition = {
   id: "volcano",
   name: "Volcanic eruption",
   category: "Geological",
+  siteLabel: "Vent",
   available: true,
   description:
     "The ground shakes, then the vent explodes: a blast wave, a towering ash column with lightning, surges racing down the slopes, and lava flowing over the real terrain.",
@@ -104,7 +106,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   // Ground heights around the vent come from the terrain model; the lava flows
   // over them and debris lands on them. On the flat fallback globe there is no
   // terrain, so the ground is level.
-  loadGround(ctx, rectangle, cellM).then((loaded) => {
+  loadGround(ctx, rectangle, GRID, cellM).then((loaded) => {
     if (destroyed) return;
     ground = loaded.ground;
     groundLowest = ground.reduce((a, b) => Math.min(a, b), Infinity);
@@ -144,18 +146,8 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
 
   /** Terrain height at a point east/north of the vent: the grid where it has data, a guess beyond it. */
   const groundAt = (east: number, north: number): number => {
-    const col = (east + halfSizeM) / cellM - 0.5;
-    const row = (halfSizeM - north) / cellM - 0.5;
-    if (ground && col >= 0 && row >= 0 && col < GRID - 1 && row < GRID - 1) {
-      const c0 = Math.floor(col);
-      const r0 = Math.floor(row);
-      const fc = col - c0;
-      const fr = row - r0;
-      const i = r0 * GRID + c0;
-      const top = ground[i] * (1 - fc) + ground[i + 1] * fc;
-      const bottom = ground[i + GRID] * (1 - fc) + ground[i + GRID + 1] * fc;
-      return top * (1 - fr) + bottom * fr;
-    }
+    const inGrid = ground ? gridHeight(ground, GRID, cellM, east, north) : undefined;
+    if (inGrid !== undefined) return inGrid;
     // Outside the grid (or before it loads): assume the slopes keep falling away.
     return Math.max(groundLowest, site.heightM - 0.3 * Math.hypot(east, north));
   };
@@ -165,7 +157,17 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   const fires =
     lavaOn && ctx.buildings
       ? new BuildingFires(viewer.scene, ctx.buildings, {
-          sim: () => sim,
+          // Lava at least 0.3 m deep in the building's cell sets it on fire;
+          // deeper than 2.5 m (or 40% of its height) buries it.
+          hazard: (ref) => {
+            if (!sim) return "none";
+            const col = Math.floor(((ref.lon - (site.lon - dLon)) / (2 * dLon)) * GRID);
+            const row = Math.floor(((site.lat + dLat - ref.lat) / (2 * dLat)) * GRID);
+            if (col < 0 || row < 0 || col >= GRID || row >= GRID) return "none";
+            const lava = sim.thickness[row * GRID + col];
+            if (lava < 0.3) return "none";
+            return lava > Math.min(2.5, ref.heightM * 0.4) ? "bury" : "burn";
+          },
           rect: {
             west: site.lon - dLon,
             south: site.lat - dLat,
@@ -369,43 +371,3 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   return instance;
 }
 
-async function loadGround(ctx: DisasterContext, rectangle: Rectangle, cellM: number): Promise<{ ground: Float32Array; note: string }> {
-  const ground = new Float32Array(GRID * GRID);
-  if (ctx.providerMode !== "ion") {
-    // No terrain model: the ground is level except where it has been sculpted.
-    let sculpted = false;
-    const toDeg = 180 / Math.PI;
-    for (let row = 0; row < GRID; row++) {
-      const lat = (rectangle.north - ((row + 0.5) / GRID) * rectangle.height) * toDeg;
-      for (let col = 0; col < GRID; col++) {
-        const lon = (rectangle.west + ((col + 0.5) / GRID) * rectangle.width) * toDeg;
-        const h = ctx.sculptDelta(lon, lat);
-        ground[row * GRID + col] = h;
-        if (h !== 0) sculpted = true;
-      }
-    }
-    return { ground, note: sculpted ? " on sculpted ground (no terrain token)" : " · flat ground (no terrain token)" };
-  }
-
-  const points: Cartographic[] = [];
-  for (let row = 0; row < GRID; row++) {
-    // Row 0 is the north edge; sample at cell centres.
-    const lat = rectangle.north - ((row + 0.5) / GRID) * rectangle.height;
-    for (let col = 0; col < GRID; col++) {
-      const lon = rectangle.west + ((col + 0.5) / GRID) * rectangle.width;
-      points.push(new Cartographic(lon, lat));
-    }
-  }
-  try {
-    // Sample at the one terrain level whose detail matches the lava cells
-    // (a tile at level L is 180/2^L degrees wide with ~64 samples across).
-    // "Most detailed" fetched many times more tiles than the model can use,
-    // which delayed the lava by up to a minute while Google's tiles loaded.
-    const level = Math.max(9, Math.min(13, Math.round(Math.log2((180 * 111_320) / (64 * cellM)))));
-    const sampled = await sampleTerrain(ctx.viewer.terrainProvider, level, points);
-    sampled.forEach((p, i) => (ground[i] = Number.isFinite(p.height) ? p.height : 0));
-    return { ground, note: " on real terrain" };
-  } catch {
-    return { ground, note: " · terrain unavailable, flat ground used" };
-  }
-}

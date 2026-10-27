@@ -3,6 +3,7 @@ import type { ProviderMode } from "../globe/createGlobe";
 import type { PerformanceMonitor } from "../globe/performance";
 import type { SoundBoard } from "../audio/sound";
 import type { Buildings } from "../globe/buildings";
+import type { SculptEdit } from "../globe/sculptShapes";
 
 /** Where a disaster happens. `heightM` is the ground height there, if known. */
 export interface Site {
@@ -53,6 +54,11 @@ export interface DisasterContext {
    * with a token; on the flat fallback globe it is the only relief there is.
    */
   sculptDelta: (lon: number, lat: number) => number;
+  /**
+   * Reshapes the ground (a meteor's craters). Pass [] to restore it. Kept
+   * separate from the user's Sculpt edits, and cleared when the disaster ends.
+   */
+  setGroundDamage: (damage: SculptEdit[]) => void;
 }
 
 /**
@@ -78,6 +84,12 @@ export interface DisasterDefinition {
   id: string;
   name: string;
   category: string;
+  /** What the chosen point is called in the panel ("Vent", "Impact point"). */
+  siteLabel: string;
+  /** Shown under the site instead of the volcano real/fictional check. */
+  siteNote?: { title: string; text: string };
+  /** Reshapes the terrain, so it runs in the terrain view (Google's mesh can't be reshaped). */
+  needsTerrain?: boolean;
   /** False for disasters listed in the panel but not built yet. */
   available: boolean;
   description: string;
