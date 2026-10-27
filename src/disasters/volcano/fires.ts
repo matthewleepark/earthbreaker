@@ -1,6 +1,6 @@
 import { BillboardCollection, Cartesian3, Color, type Billboard, type Scene } from "cesium";
 import type { BuildingRef, Buildings } from "../../globe/buildings";
-import type { LavaSim } from "./lavaSim";
+import type { LavaView } from "./lavaProtocol";
 import { ashPuffTexture, glowTexture } from "./textures";
 
 /** Lava at least this thick counts as reaching a building. */
@@ -51,7 +51,7 @@ interface Smoke {
 export class BuildingFires {
   private readonly scene: Scene;
   private readonly buildings: Buildings;
-  private readonly sim: () => LavaSim | undefined;
+  private readonly sim: () => LavaView | undefined;
   private readonly rect: { west: number; south: number; east: number; north: number };
   private readonly groundAt: (lon: number, lat: number) => number;
   private readonly up: Cartesian3;
@@ -73,7 +73,7 @@ export class BuildingFires {
     scene: Scene,
     buildings: Buildings,
     opts: {
-      sim: () => LavaSim | undefined;
+      sim: () => LavaView | undefined;
       /** Lava grid bounds in degrees. */
       rect: { west: number; south: number; east: number; north: number };
       groundAt: (lon: number, lat: number) => number;
@@ -169,7 +169,7 @@ export class BuildingFires {
     }
   }
 
-  private findNewFires(sim: LavaSim) {
+  private findNewFires(sim: LavaView) {
     const { west, south, east, north } = this.rect;
     const n = sim.size;
     for (const ref of this.buildings.within(west, south, east, north)) {

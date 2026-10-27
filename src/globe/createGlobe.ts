@@ -8,6 +8,7 @@ import {
   createWorldTerrainAsync,
   EllipsoidTerrainProvider,
   HeadingPitchRange,
+  HeightReference,
   BoundingSphere,
   Ion,
   ImageryLayer,
@@ -237,6 +238,10 @@ export function flyToPoint(
 /**
  * Drops a labelled pin, replacing any earlier pin with the same id. The
  * selected place and the eruption vent each have their own.
+ *
+ * The pin is clamped to whatever surface is drawn there (terrain, or Google's
+ * 3D tiles in photoreal mode), so it sits on the summit rather than floating
+ * at a published elevation the terrain model doesn't quite reach.
  */
 export function setMarker(
   viewer: Viewer,
@@ -257,8 +262,10 @@ export function setMarker(
       outlineColor: Color.WHITE,
       outlineWidth: 2,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      heightReference: HeightReference.CLAMP_TO_GROUND,
     },
     label: {
+      heightReference: HeightReference.CLAMP_TO_GROUND,
       text: label,
       font: "600 14px system-ui, sans-serif",
       fillColor: Color.WHITE,
@@ -344,9 +351,13 @@ export async function sampleGroundHeight(globe: Globe, lon: number, lat: number)
 }
 
 /**
- * The highest ground within `radiusM` of a point, from a 9 × 9 grid of terrain
- * samples. Used to put a volcano's vent on its actual summit when the listed
- * coordinates are slightly off. Undefined on the flat fallback globe.
+ * The highest ground within `radiusM` of a point. Used to put a volcano's vent
+ * on its actual summit when the listed coordinates are slightly off.
+ * Undefined on the flat fallback globe.
+ *
+ * Two passes of 9 × 9 terrain samples: a coarse one over the whole radius
+ * (375 m apart), then a fine one around its best point, so the result is
+ * within about 25 m of the true top rather than up to half a coarse step away.
  *
  * Reads the real terrain (globe.baseTerrain), never the sculpted one, so
  * Sculpt mode can't move a catalogue volcano's vent.
@@ -358,17 +369,23 @@ export async function findSummit(
   radiusM = 1500,
 ): Promise<{ lon: number; lat: number; heightM: number } | undefined> {
   if (globe.mode !== "ion") return undefined;
-  const dLat = radiusM / 110_540;
-  const dLon = radiusM / (111_320 * Math.cos(CesiumMath.toRadians(lat)));
-  const points: Cartographic[] = [];
-  for (let i = -4; i <= 4; i++) {
-    for (let j = -4; j <= 4; j++) points.push(Cartographic.fromDegrees(lon + (j / 4) * dLon, lat + (i / 4) * dLat));
-  }
-  try {
+  const highest = async (cLon: number, cLat: number, r: number) => {
+    const dLat = r / 110_540;
+    const dLon = r / (111_320 * Math.cos(CesiumMath.toRadians(cLat)));
+    const points: Cartographic[] = [];
+    for (let i = -4; i <= 4; i++) {
+      for (let j = -4; j <= 4; j++) points.push(Cartographic.fromDegrees(cLon + (j / 4) * dLon, cLat + (i / 4) * dLat));
+    }
     const sampled = await sampleTerrainMostDetailed(globe.baseTerrain, points);
     let best: Cartographic | undefined;
     for (const p of sampled) if (Number.isFinite(p.height) && (!best || p.height > best.height)) best = p;
     return best && { lon: CesiumMath.toDegrees(best.longitude), lat: CesiumMath.toDegrees(best.latitude), heightM: best.height };
+  };
+  try {
+    const coarse = await highest(lon, lat, radiusM);
+    if (!coarse) return undefined;
+    const fine = await highest(coarse.lon, coarse.lat, radiusM / 4);
+    return fine && fine.heightM >= coarse.heightM ? fine : coarse;
   } catch {
     return undefined;
   }

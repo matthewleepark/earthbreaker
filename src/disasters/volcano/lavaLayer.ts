@@ -9,7 +9,8 @@ import {
   type Rectangle,
   type Scene,
 } from "cesium";
-import { SOLID_TEMPERATURE, type LavaSim } from "./lavaSim";
+import { SOLID_TEMPERATURE } from "./lavaSim";
+import type { LavaView } from "./lavaProtocol";
 import { crustTexture } from "./textures";
 
 /** 512 px over a 7–20 km square is 14–40 m per pixel, finer than the 55–160 m model cells. */
@@ -34,7 +35,7 @@ const RAMP: Array<[number, [number, number, number]]> = [
  */
 export class LavaLayer {
   private readonly scene: Scene;
-  private readonly sim: LavaSim;
+  private readonly sim: LavaView;
   private readonly primitive: GroundPrimitive;
   private readonly material: Material;
   private readonly cells: HTMLCanvasElement;
@@ -45,7 +46,7 @@ export class LavaLayer {
   private readonly frames: [HTMLCanvasElement, HTMLCanvasElement];
   private frame = 0;
 
-  constructor(scene: Scene, sim: LavaSim, rectangle: Rectangle, rng: () => number) {
+  constructor(scene: Scene, sim: LavaView, rectangle: Rectangle, rng: () => number) {
     this.scene = scene;
     this.sim = sim;
     this.cells = document.createElement("canvas");

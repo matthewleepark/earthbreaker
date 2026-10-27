@@ -1,7 +1,8 @@
-import { Cartesian3, Cartographic, Rectangle, sampleTerrainMostDetailed } from "cesium";
+import { Cartesian3, Cartographic, Rectangle, sampleTerrain } from "cesium";
 import type { DisasterContext, DisasterDefinition, DisasterInstance, DisasterStatus, Metric, Params, Site } from "../types";
 import { seededRandom } from "../random";
-import { LavaSim, breachVent } from "./lavaSim";
+import { breachVent } from "./lavaSim";
+import type { LavaRequest, LavaSnapshot, LavaView } from "./lavaProtocol";
 import { BuildingFires } from "./fires";
 import { LavaLayer } from "./lavaLayer";
 import { Plume } from "./plume";
@@ -9,12 +10,7 @@ import { Debris } from "./debris";
 
 /** Lava model resolution: 176 × 176 cells, 57–150 m each depending on the lava setting. */
 const GRID = 176;
-/** Normal model step; longer steps (up to the max) are used to catch up when behind. */
-const LAVA_STEP_S = 0.1;
-const LAVA_MAX_STEP_S = 0.5;
-/** Milliseconds of each frame the lava model may use, so it can't stall the frame. */
-const LAVA_BUDGET_MS = 6;
-/** Repainting and re-uploading the lava texture is the costly part; ~5 times a second looks smooth. */
+/** How often the worker's lava is fetched and repainted; ~5 times a second looks smooth. */
 const LAVA_REPAINT_MS = 200;
 /** Lava never reaches farther than this from the vent. */
 const MAX_RUNOUT_M = 10_000;
@@ -91,7 +87,14 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   // Effusion rate in time-lapse cubic metres per second.
   const effusion = 12_000 * params.lava * params.lava;
 
-  let sim: LavaSim | undefined;
+  // The lava model runs in a worker (lavaWorker.ts); `view` holds its latest
+  // snapshot for the texture and the fires, `latest` its numbers.
+  let sim: LavaView | undefined;
+  let latest: LavaSnapshot | undefined;
+  let worker: Worker | undefined;
+  let waiting = false;
+  let finalSent = false;
+  let lastAsk = 0;
   let layer: LavaLayer | undefined;
   let ground: Float32Array | undefined;
   let groundLowest = site.heightM;
@@ -101,22 +104,42 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   // Ground heights around the vent come from the terrain model; the lava flows
   // over them and debris lands on them. On the flat fallback globe there is no
   // terrain, so the ground is level.
-  loadGround(ctx, rectangle).then((loaded) => {
+  loadGround(ctx, rectangle, cellM).then((loaded) => {
     if (destroyed) return;
     ground = loaded.ground;
     groundLowest = ground.reduce((a, b) => Math.min(a, b), Infinity);
     terrainNote = loaded.note;
     if (!lavaOn) return;
-    sim = new LavaSim({
+    const view: LavaView = {
+      size: GRID,
+      cellSizeM: cellM,
+      thickness: new Float32Array(GRID * GRID),
+      temperature: new Float32Array(GRID * GRID),
+    };
+    worker = new Worker(new URL("./lavaWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<LavaSnapshot>) => {
+      if (destroyed) return;
+      latest = event.data;
+      view.thickness = latest.thickness;
+      view.temperature = latest.temperature;
+      waiting = false;
+      layer?.render();
+      viewer.scene.requestRender();
+    };
+    const request: LavaRequest = {
+      type: "init",
       size: GRID,
       cellSizeM: cellM,
       ground,
       // Lava breaks out through the lowest notch of the crater and runs down that side.
       ventCells: breachVent(ground, GRID, cellM),
-      rng,
+      seed,
       maxRunoutM: MAX_RUNOUT_M,
-    });
-    layer = new LavaLayer(viewer.scene, sim, rectangle, rng);
+      schedule: { duration, lavaStart: PHASES.lavaStart, lavaEnd: PHASES.lavaEnd, effusion },
+    };
+    worker.postMessage(request);
+    sim = view;
+    layer = new LavaLayer(viewer.scene, view, rectangle, rng);
   });
 
   /** Terrain height at a point east/north of the vent: the grid where it has data, a guess beyond it. */
@@ -176,8 +199,6 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   let lastElapsed = 0;
   let lastCollapse = -Infinity;
   let debrisCarry = 0;
-  let lavaClock = 0;
-  let lastPaint = 0;
   let visible = true;
   let shake = 0;
   let current: DisasterStatus = { phase: "Warning signs", metrics: [], booms: 0 };
@@ -271,32 +292,17 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
         0.1 * ashLevel,
       );
 
-      if (sim && layer) {
-        const target = Math.max(0, elapsed - PHASES.lavaStart * duration);
-        // A time budget per frame rather than a step count, with longer steps
-        // when the model has fallen behind (slow computers, 4× speed), so it
-        // never drifts behind the clock. At the very end it catches up fully,
-        // so the aftermath always shows the flows crusted over.
-        const behind = target - lavaClock;
-        const stepS = f >= 1 ? LAVA_MAX_STEP_S : behind > 3 ? 0.3 : behind > 1 ? 0.2 : LAVA_STEP_S;
-        const stopAt = f >= 1 ? Infinity : performance.now() + LAVA_BUDGET_MS;
-        let steps = 0;
-        while (lavaClock + stepS <= target + 1e-6 && performance.now() < stopAt) {
-          const lf = (lavaClock + PHASES.lavaStart * duration) / duration;
-          // Effusion eases off over the last fifth of the lava phase. After it
-          // stops, cooling speeds up (up to 80×: hours of cooling compressed
-          // into seconds) so even thick flows have crusted over into dark rock
-          // by the end of the time-lapse.
-          const taper = Math.min(1, Math.max(0, (PHASES.lavaEnd - lf) / 0.12));
-          const cooling = lf < PHASES.lavaEnd ? 1 : 1 + 79 * Math.min(1, (lf - PHASES.lavaEnd) / (0.92 - PHASES.lavaEnd));
-          sim.step(stepS, lf < PHASES.lavaEnd ? effusion * taper : 0, cooling);
-          lavaClock += stepS;
-          steps++;
-        }
+      // Ask the lava worker to catch up to the clock about five times a second
+      // (one request at a time), and once more at the very end so the
+      // aftermath shows the flows fully crusted over.
+      if (worker && !waiting) {
         const now = performance.now();
-        if (steps > 0 && (f >= 1 || now - lastPaint > LAVA_REPAINT_MS)) {
-          layer.render();
-          lastPaint = now;
+        if ((f >= 1 && !finalSent) || (f < 1 && now - lastAsk > LAVA_REPAINT_MS)) {
+          const ask: LavaRequest = { type: "advance", elapsed: Math.min(elapsed, duration) };
+          worker.postMessage(ask);
+          waiting = true;
+          lastAsk = now;
+          if (f >= 1) finalSent = true;
         }
       }
 
@@ -326,6 +332,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
 
     destroy() {
       destroyed = true;
+      worker?.terminate();
       plume.destroy();
       debris.destroy();
       fires?.destroy();
@@ -341,10 +348,11 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
     ];
     if (!lavaOn) return list;
     if (!sim) return [...list, { label: "Lava", value: "Reading terrain…" }];
+    const lava = latest ?? { areaKm2: 0, runoutKm: 0, moltenShare: 0, reachedEdge: false };
     list.push(
-      { label: "Lava area", value: `${sim.coveredAreaKm2().toFixed(2)} km²`, note: `Simulated estimate${terrainNote}` },
-      { label: "Runout", value: `${sim.runoutKm().toFixed(1)} km`, note: sim.reachedEdge() ? "Reached the edge of the modelled area" : "Farthest lava from the vent" },
-      { label: "Still molten", value: `${Math.round(sim.moltenShare() * 100)}%` },
+      { label: "Lava area", value: `${lava.areaKm2.toFixed(2)} km²`, note: `Simulated estimate${terrainNote}` },
+      { label: "Runout", value: `${lava.runoutKm.toFixed(1)} km`, note: lava.reachedEdge ? "Reached the edge of the modelled area" : "Farthest lava from the vent" },
+      { label: "Still molten", value: `${Math.round(lava.moltenShare * 100)}%` },
     );
     if (fires) {
       list.push({
@@ -361,7 +369,7 @@ async function createEruption(ctx: DisasterContext, site: Site, params: Params, 
   return instance;
 }
 
-async function loadGround(ctx: DisasterContext, rectangle: Rectangle): Promise<{ ground: Float32Array; note: string }> {
+async function loadGround(ctx: DisasterContext, rectangle: Rectangle, cellM: number): Promise<{ ground: Float32Array; note: string }> {
   const ground = new Float32Array(GRID * GRID);
   if (ctx.providerMode !== "ion") {
     // No terrain model: the ground is level except where it has been sculpted.
@@ -389,7 +397,12 @@ async function loadGround(ctx: DisasterContext, rectangle: Rectangle): Promise<{
     }
   }
   try {
-    const sampled = await sampleTerrainMostDetailed(ctx.viewer.terrainProvider, points);
+    // Sample at the one terrain level whose detail matches the lava cells
+    // (a tile at level L is 180/2^L degrees wide with ~64 samples across).
+    // "Most detailed" fetched many times more tiles than the model can use,
+    // which delayed the lava by up to a minute while Google's tiles loaded.
+    const level = Math.max(9, Math.min(13, Math.round(Math.log2((180 * 111_320) / (64 * cellM)))));
+    const sampled = await sampleTerrain(ctx.viewer.terrainProvider, level, points);
     sampled.forEach((p, i) => (ground[i] = Number.isFinite(p.height) ? p.height : 0));
     return { ground, note: " on real terrain" };
   } catch {

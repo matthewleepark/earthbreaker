@@ -536,12 +536,15 @@ export default function App() {
             type="button"
             className={quality === "photoreal" ? "chip active" : "chip"}
             onClick={toggleQuality}
-            disabled={!ready || !photorealAvailable}
+            // Google's mesh can't show sculpted ground, so it stays off while there are edits.
+            disabled={!ready || !photorealAvailable || sculptEdits.length > 0}
             aria-pressed={quality === "photoreal"}
             title={
-              photorealAvailable
-                ? "Switch between photorealistic 3D (Google) and terrain with satellite imagery"
-                : "Photorealistic 3D needs a working Cesium ion token"
+              !photorealAvailable
+                ? "Photorealistic 3D needs a working Cesium ion token"
+                : sculptEdits.length > 0
+                  ? "Clear your sculpt edits to use photorealistic 3D: Google's mesh can't be reshaped"
+                  : "Switch between photorealistic 3D (Google) and terrain with satellite imagery"
             }
           >
             Photoreal 3D

@@ -204,6 +204,9 @@ export class SculptedTerrainProvider {
       eastSkirtHeight: skirt,
       northSkirtHeight: skirt,
       childTileMask: (base as unknown as { _childTileMask?: number })._childTileMask ?? 15,
+      // Keep the tile's own land/water mask. Without one, Cesium borrows a
+      // coarser ancestor's, which can paint water shading over dry land.
+      waterMask: (base as unknown as { _waterMask?: Uint8Array })._waterMask,
       encodedNormals: this.hasVertexNormals ? encodeNormals(positions, indices) : undefined,
     });
   }

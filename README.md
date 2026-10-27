@@ -311,12 +311,8 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
 - Time of day uses today's date, so dawn and dusk times change with the seasons. Near the poles,
   where the sun may not rise or set today, the closest moment is used. The drawn sun and moon discs
   are hidden, because they follow the clock rather than the chosen light.
-- **Tested in code only, not yet in a live browser** (these need the ion token, which only the
-  deployed site has):
-  - building fires
-  - summit snapping on real terrain
-  - Sculpt mode on Cesium World Terrain (it was tested in a browser on the no-token flat globe)
-  - the time-of-day tint on Google's photorealistic tiles
+- See [Verified on the deployed site](#verified-on-the-deployed-site) for what has been checked
+  with real terrain. Anything not listed there hasn't been verified in a live browser.
 - Sculpted edits disappear when you reload the page.
 - **Buildings and fires:**
   They're built on Cesium OSM Buildings' `cesium#latitude`, `cesium#longitude` and
@@ -326,6 +322,37 @@ tests/lavaSim.test.ts         Lava model tests on synthetic terrain
   or removed, so they don't visibly char or collapse.
 - Desktop first. It works on phones, but the globe controls are built for a mouse.
 - The production bundle is large (~4.4 MB, ~1.2 MB gzipped), almost all of it CesiumJS.
+
+## Verified on the deployed site
+
+These were checked on <https://matthewleepark.github.io/earthbreaker/> with the Cesium ion token
+(real terrain) on 27 October 2026, in headless Chrome with software rendering (about 5 fps). Only
+checks that passed are listed. Sound wasn't checked, because the test browser had no audio output.
+
+- **Vent on the real summit:** Mount Fuji's vent sits exactly on the highest terrain within 1.5 km
+  (0 m off, 0 m above the ground).
+- **Arming doesn't erupt:** after selecting Mount Rainier and waiting, nothing started. There was no
+  simulation bar, the clock stayed stopped, and no effects were added.
+- **The eruption on Mount Rainier:**
+  - It runs warning → main eruption → aftermath → ended.
+  - Volcanic lightning appeared in the plume.
+  - Up to 121 debris pieces were resting on the terrain at once.
+  - The lava ran 6.7 km down a valley on the north-north-east flank, under the 10 km cap, and
+    ended 0% molten (black crust).
+  - Reset removed every effect and stopped the clock.
+- **Buildings burn, then are buried** (Mount Vesuvius, lava setting 5): real OpenStreetMap houses
+  in the flow's path turned orange with smoke rising, then were hidden under the lava. The count
+  read 6 reached and 2 buried, and the house that was zoomed in on was gone.
+- **Time of day mid-eruption:**
+  - Switching Dawn → Noon → Dusk → Night didn't make the eruption clock jump, in both terrain and
+    photorealistic views.
+  - At Night, lightning reads clearly against the dark sky.
+  - Google's photorealistic tiles take the dark night tint.
+- **Sculpt:**
+  - It's unavailable while an eruption runs ("Reset the eruption first"), and available again
+    after Reset.
+  - Spawn peak, raise and lower changed the real terrain heights. Undo and Clear removed them,
+    and the satellite imagery draped over the new shapes (not a white sheet).
 
 ## Roadmap
 
